@@ -177,9 +177,9 @@ booted on a Cardputer ADV with the official **Cap LoRa-1262**.
 
 Boot reports `radio.begin=0 ioe=1`, and `h`/`j` drive the state machine.
 
-**The pinout lives in `README.md`** — one copy, don't restate it here. What
-matters when editing `main.cpp` is which parts of that setup look removable and
-are not:
+**The pinout and the panel geometry live in `README.md`** — one copy, don't
+restate them here. What matters when editing `main.cpp` is which parts of that
+setup look removable and are not:
 
 - **The antenna switch (PI4IOE5V6408, I2C `0x43`, P0 high) must be enabled
   before `radio.begin()`.** Skip it and `begin()` still returns 0 while nothing
@@ -193,6 +193,12 @@ are not:
   keyboard controller rather than the original's GPIO matrix, but the library
   hides that.
 - **RadioLib 7.x**: `setRegulatorMode()` is protected; use `setRegulatorDCDC()`.
+- **Don't configure the display.** M5GFX autodetects the ADV panel and sets the
+  rotation itself; see "Display" in `README.md` for the resulting canvas. Code
+  that sets rotation or window offsets by hand is fighting the library, and a
+  layout sized for a generic ST7789 runs off the bottom of the screen. This is
+  the display's version of the antenna-switch trap: incoming files carry LCD
+  pins and a resolution that came from somewhere else entirely.
 
 ### Still unverified
 

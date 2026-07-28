@@ -89,8 +89,7 @@ pio run -t upload    # flash
 pio device monitor   # serial log, 115200 over USB CDC
 ```
 
-It compiles and links clean. It has **not** been run on hardware yet — see the
-caveats below.
+It builds, flashes and boots on a Cardputer ADV.
 
 ### What the simulation found
 
@@ -135,6 +134,8 @@ padding and was only ever deterministic by accident.
 Target is a Cardputer ADV with the official **Cap LoRa-1262** (SX1262 + GNSS).
 On boot the device prints `radio.begin=0 ioe=1` and shows the same on screen.
 
+### Radio
+
 **Pinout**, which cost more to establish than it looks:
 
 | Signal | GPIO | |
@@ -156,6 +157,24 @@ fail in ways that do not look like the radio:
   `SCK/MISO/MOSI` as `-1`.
 - **The pins are not guessable.** `DIO1` is GPIO4; GPIO2, a plausible-looking
   guess, is the ADV's Port A I2C SDA.
+
+### Display
+
+**Draw to 240 × 135 landscape.** That is the only number a UI author needs; the
+rest of the table is here so an outside file's claims can be checked against it.
+
+| | |
+| --- | --- |
+| Controller | ST7789, native 135 (w) × 240 (h), colour-inverted |
+| Window offset | x 52, y 40 — the panel is a cut-down of a 240 × 320 die |
+| Usable area | **240 × 135** after `rotation = 1` |
+| CS / RST / backlight | GPIO 37 / 33 / 38 (PWM) |
+| Bus | `SPI3_HOST` — separate from the radio's |
+
+M5GFX autodetects all of it and applies the rotation itself, so `main.cpp`
+configures nothing (`board_M5CardputerADV` in M5GFX's autodetect). Code that
+sets rotation or offsets by hand is fighting the library, and a layout written
+for 240 × 320 runs off the bottom of the screen.
 
 ### Still open
 
