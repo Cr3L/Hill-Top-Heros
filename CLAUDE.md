@@ -98,17 +98,43 @@ desync-checked for free — but only if they are added to the hash's explicit
 field list in `rpg_link.cpp`. It hashes fields one by one on purpose; hashing
 the raw struct would cover padding and was only ever deterministic by accident.
 
-## Hardware caveats — unverified, do not assume
+## Hardware
 
-- **Pin defines** in `main.cpp` (`PIN_NSS/DIO1/RST/BUSY`) are placeholders from
-  a generic wiring. Nobody has confirmed them against real hardware.
+Firmware builds with `pio run` (see `platformio.ini`) and has been flashed and
+booted on a Cardputer ADV with the official **Cap LoRa-1262**.
+
+### Confirmed on hardware
+
+Boot reports `radio.begin=0 ioe=1`, and `h`/`j` drive the state machine.
+
+**The pinout lives in `README.md`** — one copy, don't restate it here. What
+matters when editing `main.cpp` is which parts of that setup look removable and
+are not:
+
+- **The antenna switch (PI4IOE5V6408, I2C `0x43`, P0 high) must be enabled
+  before `radio.begin()`.** Skip it and `begin()` still returns 0 while nothing
+  reaches the air. There is no worse failure mode to debug — it looks exactly
+  like a protocol bug. Do not "simplify" that block away.
+- **`SPI.begin()` must be explicit.** M5's docs say RadioLib auto-maps the pins;
+  true for their board definition, not for the `m5stack-stamps3` one we build
+  against, whose variant defines `SCK/MISO/MOSI` as -1.
+- **M5 API.** `M5Cardputer.begin` and `keysState().word` work unchanged on the
+  ADV; M5Cardputer 1.1.1 supports it directly. The ADV uses a TCA8418 I2C
+  keyboard controller rather than the original's GPIO matrix, but the library
+  hides that.
+- **RadioLib 7.x**: `setRegulatorMode()` is protected; use `setRegulatorDCDC()`.
+
+### Still unverified
+
+- **RF has never actually radiated.** `ioe=1` only means the expander answered
+  on I2C. Nothing has been transmitted or received between two radios.
 - **`RF_FREQ_MHZ` is 915.0** (US/AU). EU is 868.0, and at 22 dBm with a 2 s
   beacon the duty cycle is over the 1% limit.
-- **M5 API surface** is written against the original Cardputer; the ADV
-  diverged. `M5Cardputer.begin`, `Keyboard.keysState().word`.
-- **`seedCommit()` uses mbedtls SHA-256** on device but the FNV fallback on
-  host, so the mbedtls path is untested by construction. Older ESP-IDF wants
-  `mbedtls_sha256_ret()`.
+- **`seedCommit()` takes the mbedtls SHA-256 path on device and the FNV
+  fallback on host.** The device path now compiles and runs, but the two are
+  still never compared against each other. Two peers that disagreed here could
+  not pair at all (`BYE_BAD_COMMIT`); device-to-device they always agree, so
+  this is latent rather than live. Older ESP-IDF wants `mbedtls_sha256_ret()`.
 
 ## Things simulation has NOT proven
 

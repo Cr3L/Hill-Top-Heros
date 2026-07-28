@@ -5,21 +5,45 @@
 // lossy channel in test/.
 #include <M5Cardputer.h>
 #include <RadioLib.h>
+#include <SPI.h>
+// Not re-exported by M5Unified.hpp — only M5Unified.cpp includes it internally.
+#include <utility/PI4IOE5V6408_Class.hpp>
 #include "rpg_session.h"
 
 // -------------------------------------------------------------- radio setup
-// VERIFY THESE PINS against your ADV + LoRa module combination before flashing.
-// The values below are placeholders carried over from a generic wiring.
-#define PIN_NSS   10
-#define PIN_DIO1   2
+// Pinout for the official Cap LoRa-1262 on the Cardputer ADV, per M5's Arduino
+// tutorial for the cap (which instantiates Module(5, 4, 3, 6) in this order).
+#define PIN_NSS    5
+#define PIN_DIO1   4
 #define PIN_RST    3
-#define PIN_BUSY   4
+#define PIN_BUSY   6
 
-// VERIFY THIS TOO: 915 MHz is US/AU. In EU you want 868.0 and you must respect
+// SPI is shared with the SD slot. These MUST be passed to SPI.begin()
+// explicitly: RadioLib falls back to the board variant's default pins, and the
+// m5stack_stamp_s3 variant we build against defines SCK/MISO/MOSI as -1, so the
+// radio would otherwise sit on a bus wired to nothing.
+#define PIN_SCK   40
+#define PIN_MISO  39
+#define PIN_MOSI  14
+
+// VERIFY THIS: 915 MHz is US/AU. In EU you want 868.0 and you must respect
 // the 1% duty cycle — at 22 dBm with a 2s beacon interval this is over budget.
 #define RF_FREQ_MHZ 915.0
 
-SX1262 radio = new Module(PIN_NSS, PIN_DIO1, PIN_RST, PIN_BUSY);
+SX1262 radio = new Module(PIN_NSS, PIN_DIO1, PIN_RST, PIN_BUSY, SPI);
+
+// The Cap LoRa-1262 routes its antenna through a PI4IOE5V6408 expander on the
+// ADV's internal I2C bus. P0 must be driven high before the radio is used or
+// nothing reaches the air — begin() still succeeds, which makes this the most
+// misleading failure available. Not present on the plain Cap LoRa868.
+// Defaults are already address 0x43 at 400kHz on In_I2C, which is what the cap
+// uses, so there is nothing to override here.
+static m5::PI4IOE5V6408_Class gIoe;
+
+// Set once in setup(). When the radio did not come up we stay usable as a
+// UI-only build rather than halting: the session simply never hears a peer,
+// which is an ordinary timeout path it already handles.
+static bool gRadioOk = false;
 
 // DIO1 fires for TxDone as well as RxDone, so this flag alone does not mean a
 // packet is waiting. Every transmit clears it again before returning to RX.
@@ -30,13 +54,14 @@ IRAM_ATTR void onDio1() { rxFlag = true; }
 
 struct RadioTransport : Transport {
   void send(const Packet& p) override {
+    if (!gRadioOk) return;
     radio.transmit((uint8_t*)&p, sizeof(Packet));
     rxFlag = false;                    // swallow our own TxDone interrupt
     radio.startReceive();
   }
 
   bool recv(Packet& out) override {
-    if (!rxFlag) return false;
+    if (!gRadioOk || !rxFlag) return false;
     rxFlag = false;
     if (radio.getPacketLength() != sizeof(Packet)) {   // TxDone, or a stray
       radio.startReceive();
@@ -54,12 +79,18 @@ struct ArduinoClock : Clock {
 
 struct CardputerUi : SessionUi {
   Session* s = nullptr;
+  // Bring-up diagnostic. Serial alone is not enough: setup() prints before USB
+  // CDC has enumerated, so the radio's return code — the most useful number
+  // here — is usually gone before a monitor can attach. On screen it survives.
+  const char* note = nullptr;
 
   void status(const char* line) override {
     auto& d = M5Cardputer.Display;
     d.fillScreen(TFT_BLACK);
     d.setCursor(0, 0);
     d.println(line);
+    // Idle only. It is a boot diagnostic, not something to carry into a match.
+    if (note && s && s->state() == LS_IDLE) d.println(note);
   }
 
   void battle() override {
@@ -100,16 +131,36 @@ void setup() {
 
   gUi.s = &gSession;
 
-  int st = radio.begin(RF_FREQ_MHZ, 125.0, 7, 5);
-  if (st != RADIOLIB_ERR_NONE) {
-    M5Cardputer.Display.printf("Radio fail %d", st);
-    while (true) delay(100);
+  // Antenna switch first — see the note on gIoe above for why the order here
+  // is load-bearing rather than incidental.
+  bool ioeOk = gIoe.begin();
+  if (ioeOk) {
+    gIoe.setDirection(0, true);        // P0 as output
+    gIoe.setHighImpedance(0, false);
+    gIoe.digitalWrite(0, true);        // enable the RF antenna switch
+  } else {
+    // Almost always a cap that is not seated. Worth saying out loud, because
+    // every later symptom would otherwise be blamed on the radio or protocol.
+    Serial.println("PI4IOE 0x43 not found - Cap LoRa-1262 seated?");
   }
-  radio.setOutputPower(22);
-  // setRegulatorMode() is protected in RadioLib 7.x; this is the public form.
-  radio.setRegulatorDCDC();
-  radio.setDio1Action(onDio1);
-  radio.startReceive();
+
+  SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI);
+
+  int st = radio.begin(RF_FREQ_MHZ, 125.0, 7, 5);
+  gRadioOk = (st == RADIOLIB_ERR_NONE);
+  if (gRadioOk) {
+    radio.setOutputPower(22);
+    // setRegulatorMode() is protected in RadioLib 7.x; this is the public form.
+    radio.setRegulatorDCDC();
+    radio.setDio1Action(onDio1);
+    radio.startReceive();
+  }
+  Serial.printf("radio.begin=%d ioe=%d\n", st, (int)ioeOk);
+
+  // Static: gUi.note holds this pointer for the lifetime of the program.
+  static char note[32];
+  snprintf(note, sizeof(note), "radio=%d ioe=%d", st, (int)ioeOk);
+  gUi.note = note;
 
   gSession.begin(deviceId(), esp_random());   // hw RNG, only used pre-match
 }

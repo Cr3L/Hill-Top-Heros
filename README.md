@@ -4,10 +4,11 @@ A 1v1 turn-based RPG fighter for the **M5Stack Cardputer ADV**. Two units pair
 peer-to-peer over an **SX1262 LoRa** module and fight a lockstep-deterministic
 match — no server, no access point, just the two radios.
 
-> **Status: unflashed.** The protocol is heavily tested against a simulated
-> lossy channel, but this has never run on real hardware. The radio pins are
-> placeholders. See [Hardware bring-up](#hardware-bring-up) before you flash
-> anything.
+> **Status: one unit boots, nothing has been transmitted.** The protocol is
+> heavily tested against a simulated lossy channel. A single Cardputer ADV with
+> the official Cap LoRa-1262 now boots, initialises the radio cleanly and drives
+> the UI — but no packet has ever crossed the air between two units. See
+> [Hardware](#hardware).
 
 ## How a match works
 
@@ -129,22 +130,42 @@ padding and was only ever deterministic by accident.
 `battleInit()` currently gives both sides identical placeholder stats
 (60 HP, 20 MP, 12 atk, 6 def, 9 spd). The class/loadout system goes there.
 
-## Hardware bring-up
+## Hardware
 
-Unverified, in rough order of how badly each will bite:
+Target is a Cardputer ADV with the official **Cap LoRa-1262** (SX1262 + GNSS).
+On boot the device prints `radio.begin=0 ioe=1` and shows the same on screen.
 
-- **Pin defines.** `PIN_NSS/DIO1/RST/BUSY` in `main.cpp` are placeholders from a
-  generic wiring, confirmed against nothing. `radio.begin()` returning
-  `RADIOLIB_ERR_NONE` is the check that matters.
+**Pinout**, which cost more to establish than it looks:
+
+| Signal | GPIO | |
+| --- | --- | --- |
+| NSS / DIO1 / RST / BUSY | 5 / 4 / 3 / 6 | |
+| SCK / MISO / MOSI | 40 / 39 / 14 | shared with the SD slot |
+| RF antenna switch | PI4IOE5V6408 @ I2C `0x43`, **P0 high** | |
+
+Three things will each independently stop the radio working, and two of them
+fail in ways that do not look like the radio:
+
+- **The antenna switch must be enabled before `radio.begin()`.** It sits behind
+  an I2C expander. Miss it and `begin()` *still returns 0* while nothing reaches
+  the air — which looks exactly like a protocol bug and will send you debugging
+  the wrong layer entirely.
+- **SPI must be started explicitly.** M5's docs say RadioLib auto-maps the SPI
+  pins and no setup is needed. That holds for M5's own board definition, not for
+  the `m5stack-stamps3` one this project builds against, whose variant defines
+  `SCK/MISO/MOSI` as `-1`.
+- **The pins are not guessable.** `DIO1` is GPIO4; GPIO2, a plausible-looking
+  guess, is the ADV's Port A I2C SDA.
+
+### Still open
+
 - **Region.** `RF_FREQ_MHZ` is `915.0` (US/AU). **EU is 868.0** — and at 22 dBm
-  with a 2 s beacon, the duty cycle is over the 1% limit, so raise `BEACON_MS`
-  or cut power. That's a compliance problem, not a bug, and it wants settling
-  before the radio goes on air.
-- **M5 API surface.** Written against the original Cardputer; the ADV diverged.
-  Specifically `M5Cardputer.begin` and `Keyboard.keysState().word`.
-- **mbedtls.** `seedCommit()` uses SHA-256 on device but an FNV fallback on
-  host, so the mbedtls path is untested *by construction* — the host suite never
-  reaches it. Older ESP-IDF wants `mbedtls_sha256_ret()`.
+  with a 2 s beacon the duty cycle is over the 1% limit, so raise `BEACON_MS` or
+  cut power. A compliance matter, not a bug, and worth settling before the radio
+  goes on air in the EU.
+- **mbedtls.** `seedCommit()` takes SHA-256 on device and an FNV fallback on
+  host, and the two are never compared. Device-to-device they always agree, so
+  this is latent. Older ESP-IDF wants `mbedtls_sha256_ret()`.
 
 ## What simulation has NOT proven
 
