@@ -30,11 +30,12 @@ a stale process doc is worse than none.
 - Report failures with the actual output. A skipped step gets called out, not
   quietly dropped.
 
-### Not yet set up
+### Repository
 
-**There is no git repository here** — `git init` has not been run and no remote
-is configured, so step 10 cannot execute. Sort this out before the next task
-completes, or the loop dead-ends.
+`git@github.com:Cr3L/Hill-Top-Heros.git`, branch `main`, over SSH. Pushed to
+directly; there is no PR flow set up.
+
+Test binaries under `test/` are gitignored — never commit them.
 
 ## What this is
 
