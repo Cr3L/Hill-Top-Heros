@@ -142,13 +142,27 @@ struct CardputerUi : SessionUi {
     if (note && s && s->state() == LS_IDLE) d->println(note);
   }
 
+  // HP as a filled rect below each combatant's line. Text stays alongside it —
+  // the exact number still drives decisions (a skill's mp cost, whether a hit
+  // is lethal) — the bar is only there to make that number readable at a
+  // glance instead of read digit by digit.
+  static void hpBar(LovyanGFX* g, int y, int hp, int hpMax) {
+    const int x = 0, w = 240, h = 4;
+    int fill = hpMax > 0 ? (w * hp) / hpMax : 0;
+    g->drawRect(x, y, w, h, TFT_WHITE);
+    if (fill > 0) g->fillRect(x + 1, y + 1, fill - 2 > 0 ? fill - 2 : 0, h - 2, TFT_WHITE);
+  }
+
   void battle() override {
     if (!s) return;
     const BattleState& b = s->battle();
     Frame d(*this);
     d->printf("T%u %s\n", b.turn, s->isHost() ? "HOST" : "GUEST");
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < 2; i++) {
       d->printf("%s %d/%d mp%d\n", b.p[i].name, b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
+      hpBar(d.operator->(), d->getCursorY(), b.p[i].hp, b.p[i].hpMax);
+      d->setCursor(0, d->getCursorY() + 6);   // bar height + a gap before next line
+    }
     // Item charges are finite, so the count has to be visible or the player is
     // guessing. Trailing digit keeps this at 20 chars, the width of the panel
     // at text size 2 — see "Display" in README.md.
@@ -175,7 +189,9 @@ static uint32_t deviceId() {
 void setup() {
   auto cfg = M5.config();
   M5Cardputer.begin(cfg, true);
-  M5Cardputer.Display.setRotation(1);
+  // No setRotation() here: M5GFX autodetects the ADV panel and its rotation
+  // itself (see "Display" in README.md). Setting it by hand fights the
+  // library rather than configuring it.
   M5Cardputer.Display.setTextSize(2);
   Serial.begin(115200);
 
