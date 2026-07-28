@@ -68,8 +68,8 @@ Stated once each, below, and defined in full in the sections named. Do not
 restate those definitions here — one copy, same as the pinout.
 
 - **The layering rule** — see "The layering rule that matters". The one that
-  makes the test suite possible, so a violation is rejected on sight however
-  good the code looks. Nothing enforces it mechanically yet; check by eye.
+  makes the test suite possible. You do not have to check this one by eye:
+  incoming code that violates it will not compile under `make -C test`.
 - **The battle RNG** — see "Invariants the suite defends".
 - **Wire layout.** Beyond the invariants section: any change to `Packet` needs a
   `PROTO_VERSION` bump *and* the `static_assert` on `sizeof(Packet)` updated.
@@ -121,6 +121,17 @@ simulated channel in `test/sim_channel.h`.
 
 If a change needs hardware inside those files, the change is wrong — add it to
 the interface or keep it in `main.cpp`.
+
+**This rule is enforced by the build, not by discipline.** Those two files
+compile against `test/stub/Arduino.h`, which declares nothing, so `millis()`
+fails with "not declared in this scope" and an M5 or RadioLib include fails with
+"No such file or directory". Both break `make -C test`.
+
+That enforcement rests entirely on the stub staying empty, and the obvious fix
+when you hit one of those errors is to add the missing symbol to the stub —
+which would disable the rule silently and for good. The `check-stub` target
+exists to stop that, and it is why the stub is allowed to contain nothing but
+comments, `#pragma once`, and two size includes.
 
 ## Testing
 
