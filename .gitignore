@@ -14,6 +14,12 @@
 .pioenvs/
 build/
 
+# Incoming work staged for review. Untrusted by definition and deleted once a
+# merge lands, so it stays out of history — only the README is tracked. Drop
+# these two lines if you ever want a drop committed for reference.
+/_incoming/*
+!/_incoming/README.md
+
 # Editor / OS
 .vscode/
 .DS_Store
