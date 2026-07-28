@@ -1,0 +1,19 @@
+# Host test binaries (built by `make -C test`)
+/test/run
+/test/run_session
+
+# Build artefacts
+*.o
+*.d
+*.elf
+*.bin
+*.map
+
+# PlatformIO / Arduino
+.pio/
+.pioenvs/
+build/
+
+# Editor / OS
+.vscode/
+.DS_Store
