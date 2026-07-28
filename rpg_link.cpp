@@ -232,9 +232,13 @@ void battleResolve(BattleState& b, ActionId a0, ActionId a1) {
   if (a0 == ACT_GUARD) b.p[0].guarding = 1;
   if (a1 == ACT_GUARD) b.p[1].guarding = 1;
 
-  // Initiative: higher spd first; tie broken deterministically by slot 0.
+  // Initiative: higher spd first. A tie alternates by turn parity rather than
+  // always falling to slot 0 — with classes, mirrors are common, and a fixed
+  // tiebreak handed the host ~86% of them. Parity is read from state both peers
+  // already agree on, so it costs no rng and cannot desync.
   // Never break ties with rng here unless BOTH sides consume it identically.
-  bool hostFirst = (b.p[0].spd >= b.p[1].spd);
+  bool hostFirst = b.p[0].spd != b.p[1].spd ? b.p[0].spd > b.p[1].spd
+                                            : (b.turn % 2) == 0;
 
   if (hostFirst) { applyAction(b, 0, a0); applyAction(b, 1, a1); }
   else           { applyAction(b, 1, a1); applyAction(b, 0, a0); }

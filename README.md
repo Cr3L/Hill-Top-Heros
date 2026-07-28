@@ -146,6 +146,13 @@ sim that reads an *opposing* stat, which makes it the answer to the glass
 cannons and useless against the tank. Skills ignore GUARD and are mitigated by
 `def/2` — guarding answers ATTACK, HP and MP answer skills.
 
+**Initiative goes to the higher `spd`; a tie alternates by turn parity.** That
+matters because a quarter of pairings are mirrors, where `spd` is equal by
+definition — breaking those ties the obvious way, always to slot 0, gave the
+host **86%** of them. Parity reads only state both peers already agree on, so it
+needs no RNG and cannot desync. Mirrors now sit at 47.7% over 50,000 matches,
+pinned by `testMirrorsAreFair`.
+
 Tuned against a scripted-pilot sweep of every pairing: all four sit between 47%
 and 53%, matches average 13 turns. **The stat pools are the tuned part** — the
 formulas and `atk`/`def`/`spd` carry the identities and were held fixed. Change

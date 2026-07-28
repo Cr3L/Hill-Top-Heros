@@ -262,6 +262,48 @@ static void testItemCapsAtMax() {
   CHECK(b.p[0].hp == b.p[0].hpMax);
 }
 
+// Initiative ties used to fall to slot 0 always, which handed the host ~86% of
+// mirror matches — invisible while both placeholder rosters had the same spd,
+// and a real fairness bug once classes made mirrors a quarter of all pairings.
+// Ties now alternate on turn parity. Two things to hold: the alternation itself,
+// and the outcome it exists to fix.
+static void testMirrorsAreFair() {
+  printf("mirror matches do not favour the host\n");
+
+  // The mechanism. Equal spd, so parity alone decides, and turn 0 is the host's.
+  // Read through damage: whoever strikes first in a mutual-kill turn survives.
+  for (int turn = 0; turn < 2; turn++) {
+    BattleState b;
+    battleInit(b, 1);
+    b.p[1] = b.p[0];                   // an exact mirror, so only parity differs
+    b.turn = turn;
+    b.p[0].hp = b.p[1].hp = 1;         // either blow ends it
+    battleResolve(b, ACT_ATTACK, ACT_ATTACK);
+    CHECK(battleWinner(b) == turn % 2);  // even turn -> host strikes first
+  }
+
+  // The outcome. Attack-only, so the match is decided by initiative and rng and
+  // nothing else — the cleanest look at the bias there is.
+  int wins[2] = {0, 0}, mirrors = 0;
+  for (uint32_t seed = 1; seed <= 4000; seed++) {
+    BattleState b;
+    battleInit(b, seed);
+    if (b.p[0].classId != b.p[1].classId) continue;
+    mirrors++;
+    int guard = 0;
+    while (battleWinner(b) == -1 && guard++ < 500)
+      battleResolve(b, ACT_ATTACK, ACT_ATTACK);
+    int w = battleWinner(b);
+    if (w >= 0) wins[w]++;
+  }
+  CHECK(mirrors > 200);                // enough of a sample to mean anything
+  // Wide on purpose. This is a regression bound, not a balance target: the old
+  // tiebreak sat at ~86%, and pinning it tighter would make the test fail for
+  // ordinary sim edits that are nobody's fault.
+  int pct = wins[0] * 100 / (wins[0] + wins[1]);
+  CHECK(pct >= 40 && pct <= 60);
+}
+
 static void testFightTerminates() {
   printf("fights terminate cleanly\n");
   for (uint32_t seed = 1; seed <= 64; seed++) {
@@ -385,6 +427,7 @@ int main() {
   testGuardReducesDamage();
   testSkillCostsMp();
   testItemCapsAtMax();
+  testMirrorsAreFair();
   testFightTerminates();
   testFightTerminatesUnderAllActions();
   testWinnerReporting();
