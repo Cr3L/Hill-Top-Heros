@@ -351,6 +351,49 @@ static void testLossSweep() {
   }
 }
 
+// --------------------------------------------------------------- turn cap
+
+// Every other scenario here autoplays ATTACK, which converges long before
+// MAX_TURNS (README: ~13 turns average) — so nothing at the session level had
+// ever exercised the cap path in rpg_link.cpp's battleResolve(), only the link
+// layer's own testFightTerminatesUnderAllActions(). This drives the same
+// pathological stalemate through the real FSM and simulated channel instead,
+// which is the two things the link-level test cannot see: that a capped match
+// still drives both peers to LS_OVER through the session's retry/ack machinery,
+// and that they still agree once it does.
+static void testSessionReachesTurnCap() {
+  printf("session drives a stalemate match to the turn cap\n");
+  uint32_t capped = 0;
+  for (uint32_t seed = 1; seed <= 40; seed++) {
+    Rig r;
+    r.begin(seed);
+    // The pathological case the cap exists for, same as rpg_link.cpp's own
+    // testFightTerminatesUnderAllActions: both sides press ITEM every turn.
+    // ACT_ITEM never damages the opponent, so nobody's hp ever moves and
+    // battleWinner() cannot resolve on its own — only the turn cap can end
+    // this. Deterministic regardless of class or seed, unlike a "heal when
+    // hurt" pilot, which just converges normally once nobody is hurt.
+    r.keyFor = [](const Session&) { return '4'; };
+    r.run(600000);            // generous: MAX_TURNS turns at worst-case retries
+
+    CHECKM(r.bothDone(), "seed %u: host=%s join=%s", seed,
+           linkStateName(r.host.state()), linkStateName(r.join.state()));
+    CHECK(!sawDesync(r));
+    CHECKM(outcomesAgree(r.host, r.join),
+           "seed %u: host said '%s', join said '%s'", seed, r.host.overMsg(),
+           r.join.overMsg());
+    CHECK(r.host.battle().turn == r.join.battle().turn);
+    CHECK(battleHash(r.host.battle()) == battleHash(r.join.battle()));
+    CHECK(r.host.battle().turn <= MAX_TURNS);
+    if (r.host.battle().turn == MAX_TURNS) capped++;
+  }
+  // Deterministic: neither side ever deals damage, so every seed must run to
+  // exactly MAX_TURNS. Anything less means the cap path isn't being reached at
+  // all — the failure mode this test exists to catch.
+  printf("  %u/40 seeds ran to the cap\n", capped);
+  CHECK(capped == 40);
+}
+
 int main() {
   testCleanMatch();
   testLostHandshake();
@@ -362,6 +405,7 @@ int main() {
   testTamperedStateHashAbortsBothSides();
   testTamperedSeedRevealRejected();
   testLossSweep();
+  testSessionReachesTurnCap();
 
   return testSummary("all session tests passed");
 }

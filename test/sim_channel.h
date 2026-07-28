@@ -173,6 +173,12 @@ struct Rig {
 
   static constexpr uint32_t STEP_MS = 5;
 
+  // What key to press for a session that's offering a turn. Defaults to
+  // always-attack, the worst case for collisions and the case every existing
+  // scenario is tuned against; a scenario that needs the match to run long
+  // (e.g. reaching MAX_TURNS) overrides this to play a healing mix instead.
+  std::function<char(const Session&)> keyFor = [](const Session&) { return '1'; };
+
   void begin(uint32_t chanSeed, uint32_t hostSeed = 0xAAAA1111,
              uint32_t joinSeed = 0xBBBB2222) {
     ch.reset(chanSeed);
@@ -193,8 +199,8 @@ struct Rig {
       host.poll();
       join.poll();
       if (autoPlay) {
-        if (host.state() == LS_MY_TURN) host.onKey('1');
-        if (join.state() == LS_MY_TURN) join.onKey('1');
+        if (host.state() == LS_MY_TURN) host.onKey(keyFor(host));
+        if (join.state() == LS_MY_TURN) join.onKey(keyFor(join));
       }
       if (bothDone()) return;
     }
