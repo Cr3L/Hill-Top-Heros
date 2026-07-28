@@ -84,29 +84,76 @@ struct CardputerUi : SessionUi {
   // here — is usually gone before a monitor can attach. On screen it survives.
   const char* note = nullptr;
 
+  // Off-screen buffer. Every redraw clears the screen and draws it again, so
+  // straight to the panel it is a visible black flash — worst on the battle
+  // screen, which redraws every turn. Composited here and pushed in one go.
+  M5Canvas canvas{&M5Cardputer.Display};
+  // False if the sprite could not be allocated; Frame then draws straight to
+  // the panel. Not merely an optimisation to skip: a failed createSprite leaves
+  // the clip rect empty, so drawing into it succeeds and shows nothing. A
+  // flickering screen beats a blank one.
+  bool buffered = false;
+
+  // Call once, after the panel's own text setup — the style is copied from it.
+  bool beginDisplay() {
+    // No PSRAM on this board (see platformio.ini), and M5Canvas's parent-taking
+    // constructor opts into it, so this has to be turned back off explicitly.
+    canvas.setPsram(false);
+    // 8bpp (rgb332), not 16: 32KB of internal heap rather than 64KB. The panel
+    // pins its own write depth to rgb565 either way, so the wider sprite would
+    // cost RAM and save nothing on the bus.
+    canvas.setColorDepth(8);
+    // Sized from the panel, not from literals: the canvas has to match whatever
+    // rotation M5GFX settled on, and a mismatch is a push that silently clips.
+    buffered = canvas.createSprite(M5Cardputer.Display.width(),
+                                   M5Cardputer.Display.height()) != nullptr;
+    // Copied wholesale rather than re-specified, so size, colour and datum
+    // cannot drift from the panel's — the buffered path is the one that renders.
+    canvas.setTextStyle(M5Cardputer.Display.getTextStyle());
+    return buffered;
+  }
+
+  // A whole frame, pushed on scope exit. The pairing is RAII rather than two
+  // calls because a missed push is invisible: the screen simply stops updating,
+  // which reads as a protocol fault rather than a drawing one.
+  struct Frame {
+    LovyanGFX& g;
+    CardputerUi& ui;
+    explicit Frame(CardputerUi& u)
+      // LovyanGFX is the base M5GFX and M5Canvas share. Casting one arm is
+      // enough; the conditional operator converts the other implicitly.
+      : g(u.buffered ? static_cast<LovyanGFX&>(u.canvas) : M5Cardputer.Display),
+        ui(u) {
+      g.fillScreen(TFT_BLACK);
+      g.setCursor(0, 0);
+    }
+    ~Frame() { if (ui.buffered) ui.canvas.pushSprite(0, 0); }
+    // A copy would push the same frame twice. Nothing does today; this is here
+    // so nothing can.
+    Frame(const Frame&) = delete;
+    Frame& operator=(const Frame&) = delete;
+    LovyanGFX* operator->() { return &g; }
+  };
+
   void status(const char* line) override {
-    auto& d = M5Cardputer.Display;
-    d.fillScreen(TFT_BLACK);
-    d.setCursor(0, 0);
-    d.println(line);
+    Frame d(*this);
+    d->println(line);
     // Idle only. It is a boot diagnostic, not something to carry into a match.
-    if (note && s && s->state() == LS_IDLE) d.println(note);
+    if (note && s && s->state() == LS_IDLE) d->println(note);
   }
 
   void battle() override {
     if (!s) return;
     const BattleState& b = s->battle();
-    auto& d = M5Cardputer.Display;
-    d.fillScreen(TFT_BLACK);
-    d.setCursor(0, 0);
-    d.printf("T%u %s\n", b.turn, s->isHost() ? "HOST" : "GUEST");
+    Frame d(*this);
+    d->printf("T%u %s\n", b.turn, s->isHost() ? "HOST" : "GUEST");
     for (int i = 0; i < 2; i++)
-      d.printf("%s %d/%d mp%d\n", b.p[i].name, b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
+      d->printf("%s %d/%d mp%d\n", b.p[i].name, b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
     // Item charges are finite, so the count has to be visible or the player is
     // guessing. Trailing digit keeps this at 20 chars, the width of the panel
     // at text size 2 — see "Display" in README.md.
-    if (s->state() == LS_WAIT_PEER) d.println("waiting for peer...");
-    else d.printf("1atk 2grd 3skl 4itm%d\n", b.p[s->isHost() ? 0 : 1].items);
+    if (s->state() == LS_WAIT_PEER) d->println("waiting for peer...");
+    else d->printf("1atk 2grd 3skl 4itm%d\n", b.p[s->isHost() ? 0 : 1].items);
   }
 
   void log(const char* msg) override { Serial.println(msg); }
@@ -131,6 +178,9 @@ void setup() {
   M5Cardputer.Display.setRotation(1);
   M5Cardputer.Display.setTextSize(2);
   Serial.begin(115200);
+
+  if (!gUi.beginDisplay())
+    Serial.println("canvas alloc failed - drawing direct, expect flicker");
 
   gUi.s = &gSession;
 
