@@ -16,7 +16,12 @@ static const uint16_t PROTO_MAGIC   = 0x5247;  // 'RG'
 //   1: original
 //   2: commit[8] added for seed commit-reveal
 //   3: dead `target` byte removed (38 -> 37)
-static const uint8_t  PROTO_VERSION = 3;
+//   4: classes, item charges and a turn cap. The LAYOUT is unchanged at 37
+//      bytes — this bump is about the sim. Two peers running different battle
+//      rules pair fine and then abort on the first stateHash compare, blaming
+//      a tampered match for what is really firmware skew. Refusing to pair is
+//      the honest answer, so a sim change earns a bump too.
+static const uint8_t  PROTO_VERSION = 4;
 
 enum PktType : uint8_t {
   PKT_BEACON   = 0x01,  // "I'm open for a duel" + commitment to my seed half
@@ -111,6 +116,14 @@ struct Combatant {
   uint8_t  atk, def, spd;
   uint8_t  guarding;   // 0/1, cleared at end of turn
   uint8_t  alive;
+  // ACT_ITEM charges left. Bounded on purpose: an unlimited heal that outpaces
+  // sustained damage makes a match non-terminating, and there is no turn cap
+  // anywhere in the session FSM to catch that.
+  uint8_t  items;
+  // Selects the ACT_SKILL formula, and with it how many rng.range() calls that
+  // action consumes. Both peers must agree or the streams diverge silently, so
+  // it is derived from the shared seed and hashed like any other field.
+  uint8_t  classId;    // index into CLASS_TABLE in rpg_link.cpp
 };
 
 struct BattleState {
@@ -119,7 +132,20 @@ struct BattleState {
   Rng       rng;
 };
 
+// Hard stop on match length. Nothing else guarantees a turn makes progress: a
+// player can spend every turn on an empty item pouch with no MP, and two of
+// them would sit there forever, in lockstep, with no way out. At the cap the
+// lower-HP side falls and equal HP is a draw, so battleWinner() always reaches
+// a verdict. Also keeps Packet::turn clear of its uint16_t ceiling.
+static const uint16_t MAX_TURNS = 100;
+
 void     battleInit(BattleState& b, uint32_t seed);
+// MP an ACT_SKILL costs this combatant. Per-class, so neither the UI nor a test
+// can assume a single number. Falls back to class 0 for an invalid classId.
+uint8_t  skillCostOf(const Combatant& c);
+// How many classes exist, so a test can cover all of them without hardcoding a
+// number the class table would silently outgrow.
+uint8_t  classCount();
 // There are exactly two slots, so a combatant's target is always the other one.
 // Targets are therefore not parameters — a target byte off the radio used to be
 // able to make an attacker hit itself.

@@ -59,24 +59,102 @@ bool seedCommitMatches(uint32_t seed, const uint8_t commit[8]) {
 
 // ------------------------------------------------------------------- battle
 
-static void mkCombatant(Combatant& c, const char* nm,
-                        int16_t hp, int16_t mp,
-                        uint8_t atk, uint8_t def, uint8_t spd) {
-  memset(&c, 0, sizeof(c));
-  strncpy(c.name, nm, sizeof(c.name) - 1);
-  c.hp = c.hpMax = hp;
-  c.mp = c.mpMax = mp;
-  c.atk = atk; c.def = def; c.spd = spd;
-  c.alive = 1;
+// ------------------------------------------------------------------- classes
+//
+// RNG CONTRACT. The number of rng.range() calls ACT_SKILL makes depends only on
+// classId — never on hp, mp, guarding or damage. Both peers hold the same
+// classId (it comes from the shared seed and is hashed), so both make the same
+// calls in the same order. A skill that rolled an extra die "if the foe is
+// below half" would happen to stay in sync today and would be a trap for the
+// next edit; don't introduce one.
+//
+//   classId  name     rng.range() calls, in order
+//   0        Bunyan   (0,4)
+//   1        Drifter  (0,12)
+//   2        Coyote   (0,5), (0,5)
+//   3        Voodoo   (0,6)
+//
+// The MP check happens before any roll, so a fizzle consumes nothing.
+
+// Ordered to match CLASS_TABLE. Reordering either without the other silently
+// remaps every formula, so the switch below labels its cases with these.
+enum ClassId : uint8_t { CLS_BUNYAN, CLS_DRIFTER, CLS_COYOTE, CLS_VOODOO };
+
+// ACT_ITEM heals 18-24, which is more than a sustained ATTACK deals against
+// every class in the table. Unlimited, that is not a balance wart but a
+// non-terminating match: with the pools below, a third of random-action fights
+// never end, and nothing in the session FSM caps the turn count. Three is
+// enough to matter and few enough that damage always wins eventually.
+static const uint8_t ITEM_CHARGES = 3;
+
+struct ClassDef {
+  const char* name;    // string literal; <= 8 chars, the display is 20 wide
+  int16_t hpMax, mpMax;
+  uint8_t atk, def, spd;
+  uint8_t skillCost;
+  uint8_t drainDiv;    // heal dmg/drainDiv on a skill; 0 = no drain
+};
+
+// Tuned against a scripted-pilot sweep of every pairing; the numbers and the
+// method are in README.md under "Classes", one copy. The pools are what was
+// tuned; atk/def/spd and the formulas carry the identities and were held fixed.
+// Changing any number here is a balance change — re-run the sweep, don't guess.
+static const ClassDef CLASS_TABLE[] = {
+  /* name       hpMax mpMax atk def spd cost drain */
+  { "Bunyan",   102,   21,  10,   9,   5,   6,   0 },
+  { "Drifter",   70,   24,  14,   4,   8,   8,   0 },
+  { "Coyote",    87,   24,  11,   5,  14,   6,   0 },
+  { "Voodoo",    88,   31,   8,   7,   7,   7,   4 },
+};
+static const uint8_t CLASS_COUNT = sizeof(CLASS_TABLE) / sizeof(CLASS_TABLE[0]);
+// battleInit() takes two seed bits per side, so the table has to be exactly
+// four entries. Add a fifth class and the draw silently never picks it.
+static_assert(CLASS_COUNT == 4, "class draw uses 2 seed bits per side");
+
+// One bounds policy for a corrupt classId, in one place. Two call sites with
+// two different fallbacks would invent a third behaviour between them.
+static const ClassDef& classDefOf(const Combatant& c) {
+  return CLASS_TABLE[c.classId < CLASS_COUNT ? c.classId : 0];
 }
 
+uint8_t classCount() { return CLASS_COUNT; }
+uint8_t skillCostOf(const Combatant& c) { return classDefOf(c).skillCost; }
+
 void battleInit(BattleState& b, uint32_t seed) {
+  // Must stay first. battleHash() covers all 12 bytes of name[] and every
+  // trailing field, and callers routinely hand us an uninitialised stack
+  // BattleState — without this, two peers with the same seed hash differently.
   memset(&b, 0, sizeof(b));
-  b.rng.seed(seed);
-  b.turn = 0;
-  // Placeholder rosters — swap for your class/loadout system later.
-  mkCombatant(b.p[0], "HOST", 60, 20, 12, 6, 9);
-  mkCombatant(b.p[1], "GUEST", 60, 20, 12, 6, 9);
+  b.rng.seed(seed);   // turn and every other field are already zeroed above
+
+  for (int i = 0; i < 2; i++) {
+    // Class comes from seed bits, not from the rng: drawing here would shift
+    // every subsequent damage roll and invalidate the streams the tests pin.
+    uint8_t cid = (uint8_t)((seed >> (i * 2)) & 3);
+    const ClassDef& cd = CLASS_TABLE[cid];
+    Combatant& c = b.p[i];
+    strncpy(c.name, cd.name, sizeof(c.name) - 1);
+    c.hp = c.hpMax = cd.hpMax;
+    c.mp = c.mpMax = cd.mpMax;
+    c.atk = cd.atk; c.def = cd.def; c.spd = cd.spd;
+    c.alive = 1;
+    c.items = ITEM_CHARGES;
+    c.classId = cid;
+  }
+}
+
+// The sim's two damage rules — a floor of 1, and clamped healing — stated once
+// each so ATTACK, SKILL and ITEM cannot drift apart.
+static int32_t dealDamage(Combatant& foe, int32_t raw, int32_t mit) {
+  int32_t dmg = raw - mit;
+  if (dmg < 1) dmg = 1;
+  foe.hp -= (int16_t)dmg;
+  return dmg;              // what actually landed, for drain
+}
+
+static void healBy(Combatant& c, int32_t amount) {
+  c.hp += (int16_t)amount;
+  if (c.hp > c.hpMax) c.hp = c.hpMax;
 }
 
 static void applyAction(BattleState& b, int self, ActionId a) {
@@ -88,28 +166,62 @@ static void applyAction(BattleState& b, int self, ActionId a) {
     case ACT_ATTACK: {
       int32_t base = me.atk + (int32_t)b.rng.range(0, 5);
       int32_t mit  = foe.def + (foe.guarding ? foe.def : 0);
-      int32_t dmg  = base - (mit / 2);
-      if (dmg < 1) dmg = 1;
-      foe.hp -= (int16_t)dmg;
+      dealDamage(foe, base, mit / 2);
       break;
     }
     case ACT_GUARD:
       // Already raised in battleResolve, before anyone acted. Nothing to do.
       break;
     case ACT_SKILL: {
-      if (me.mp < 6) break;              // fizzle, still costs the turn
-      me.mp -= 6;
-      int32_t dmg = (me.atk * 3) / 2 + (int32_t)b.rng.range(0, 8);
-      if (dmg < 1) dmg = 1;
-      foe.hp -= (int16_t)dmg;
+      const ClassDef& cd = classDefOf(me);
+      if (me.mp < cd.skillCost) break;   // fizzle, costs the turn, rolls nothing
+      me.mp -= cd.skillCost;
+
+      // Skills ignore GUARD and are mitigated by half of what an attack is —
+      // guarding is the answer to ATTACK, HP and MP are the answer to skills.
+      int32_t mit = foe.def / 2;
+      int32_t raw = 0;
+      switch (me.classId) {
+        case CLS_BUNYAN:   // Timber Cleave — the only skill that pays off DEF,
+                           // which is what lets the tank stat do something on
+                           // offence rather than only soaking.
+          raw = me.atk + me.def + (int32_t)b.rng.range(0, 4);
+          break;
+        case CLS_DRIFTER:  // Fan the Hammer — biggest and swingiest, and the
+                           // priciest, on the thinnest HP pool in the table.
+          raw = me.atk * 2 + (int32_t)b.rng.range(0, 12);
+          break;
+        case CLS_COYOTE:   // Twin Fangs — two rolls rather than one wide one,
+                           // so the same average lands on a tighter spread.
+          raw = me.atk * 2 + (int32_t)b.rng.range(0, 5)
+                           + (int32_t)b.rng.range(0, 5);
+          break;
+        case CLS_VOODOO:   // Poppet Pin — scales off the FOE's atk. Nothing
+                           // else in the sim reads an opposing stat; that is
+                           // the whole identity. It punishes the glass cannons
+                           // and does least to the tank that can grind it out.
+          raw = me.atk + foe.atk + (int32_t)b.rng.range(0, 6);
+          break;
+        default:           // Unreachable while classId is hashed; a mismatch is
+                           // a desync we would already have caught. classDefOf()
+                           // charged class 0's MP, so land its floor and stop.
+          break;
+      }
+
+      int32_t dmg = dealDamage(foe, raw, mit);
+      // Drain lands even on a killing blow. Table-driven, so a second draining
+      // class is a column edit rather than another branch here.
+      if (cd.drainDiv) healBy(me, dmg / cd.drainDiv);
       break;
     }
-    case ACT_ITEM: {
-      int32_t heal = 18 + (int32_t)b.rng.range(0, 6);
-      me.hp += (int16_t)heal;
-      if (me.hp > me.hpMax) me.hp = me.hpMax;
+    case ACT_ITEM:
+      // Charge check before the roll, exactly like the skill fizzle: an empty
+      // pouch costs the turn and consumes no RNG. `items` is hashed, so both
+      // peers run out on the same turn and stay in step.
+      if (!me.items) break;
+      me.items--;
+      healBy(me, 18 + (int32_t)b.rng.range(0, 6));
       break;
-    }
     default: break;                      // ACT_NONE / ACT_FLEE: not yet a move
   }
   if (foe.hp <= 0) { foe.hp = 0; foe.alive = 0; }
@@ -130,6 +242,24 @@ void battleResolve(BattleState& b, ActionId a0, ActionId a1) {
   b.p[0].guarding = 0;
   b.p[1].guarding = 0;
   b.turn++;
+
+  // Time limit. Decided on HP so it is not a coin flip, and computed from state
+  // both peers already agree on, so it needs no RNG and cannot desync.
+  if (b.turn >= MAX_TURNS && b.p[0].alive && b.p[1].alive) {
+    // Compared as a FRACTION of each pool, cross-multiplied to stay in integers.
+    // Raw hp would hand the win to whoever has the bigger pool: Bunyan's 102
+    // beats a Drifter at full health on 70, which is not "who was winning".
+    // Peaks around 10k, nowhere near int32_t.
+    int32_t lhs = (int32_t)b.p[0].hp * b.p[1].hpMax;
+    int32_t rhs = (int32_t)b.p[1].hp * b.p[0].hpMax;
+    if (lhs != rhs) {
+      Combatant& loser = (lhs < rhs) ? b.p[0] : b.p[1];
+      loser.hp = 0;
+      loser.alive = 0;
+    } else {
+      b.p[0].alive = b.p[1].alive = 0;   // dead heat, battleWinner() reports 2
+    }
+  }
 }
 
 // FNV-1a over the meaningful fields. Hashing the raw struct would also cover
@@ -151,6 +281,8 @@ uint32_t battleHash(const BattleState& b) {
     hashBytes(h, &c.spd, sizeof(c.spd));
     hashBytes(h, &c.guarding, sizeof(c.guarding));
     hashBytes(h, &c.alive, sizeof(c.alive));
+    hashBytes(h, &c.items, sizeof(c.items));
+    hashBytes(h, &c.classId, sizeof(c.classId));
   }
   hashBytes(h, &b.turn, sizeof(b.turn));
   hashBytes(h, &b.rng.s, sizeof(b.rng.s));   // rng position is part of the state

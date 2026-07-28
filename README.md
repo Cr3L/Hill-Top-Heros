@@ -126,8 +126,57 @@ if you add them to the hash's explicit field list** in `rpg_link.cpp`. It hashes
 fields one at a time on purpose; hashing the raw struct would cover alignment
 padding and was only ever deterministic by accident.
 
-`battleInit()` currently gives both sides identical placeholder stats
-(60 HP, 20 MP, 12 atk, 6 def, 9 spd). The class/loadout system goes there.
+### Classes
+
+Each side is dealt one of four, from two bits of the shared seed — no RNG is
+drawn, so a given seed produces the same battle stream it always did. `classId`
+is hashed like any other field, because the class decides which SKILL formula
+runs and *how many* RNG calls it makes; two peers disagreeing there would
+diverge permanently on the first skill.
+
+| | HP | MP | atk | def | spd | Skill | Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Bunyan** | 102 | 21 | 10 | 9 | 5 | Timber Cleave — `atk + def + d5` | 6 |
+| **Drifter** | 70 | 24 | 14 | 4 | 8 | Fan the Hammer — `atk×2 + d13` | 8 |
+| **Coyote** | 87 | 24 | 11 | 5 | 14 | Twin Fangs — `atk×2 + d6 + d6` | 6 |
+| **Voodoo** | 88 | 31 | 8 | 7 | 7 | Poppet Pin — `atk + foe.atk + d7`, drains ¼ | 7 |
+
+Bunyan is the only skill that pays off DEF; Voodoo's is the only thing in the
+sim that reads an *opposing* stat, which makes it the answer to the glass
+cannons and useless against the tank. Skills ignore GUARD and are mitigated by
+`def/2` — guarding answers ATTACK, HP and MP answer skills.
+
+Tuned against a scripted-pilot sweep of every pairing: all four sit between 47%
+and 53%, matches average 13 turns. **The stat pools are the tuned part** — the
+formulas and `atk`/`def`/`spd` carry the identities and were held fixed. Change
+a number and re-run the sweep rather than guessing; the classes are tightly
+coupled through it, and moving one moved every other by tens of points.
+
+### Why the match is bounded
+
+Two safeguards, both learned the hard way while tuning the classes above.
+
+**`ACT_ITEM` gets 3 charges.** It heals 18–24, which is more than a sustained
+attack deals against *any* class in the table. Unlimited, that is not a balance
+wart — it is a match that never ends, and 32% of them didn't.
+
+**Matches stop at `MAX_TURNS` (100).** Capping the pouch alone made things
+worse: an empty pouch fizzles, so two players who keep choosing it with no MP
+left deadlock completely. Nothing else guarantees a turn makes progress, so the
+cap is what actually closes the hole — the charges are balance, the cap is the
+safety net. It also keeps `Packet::turn` clear of its `uint16_t` ceiling.
+
+How often it fires depends entirely on whether a player wastes turns on an
+empty pouch, which is why the screen shows the count:
+
+| Scripted pilot, 50,000 matches | Cap fires | Avg turns |
+| --- | --- | --- |
+| Heals only with a charge in hand | **0%** | 12.7 |
+| Heals whenever hurt, charges or not | **16.6%** | 26.7 |
+
+The cap decides on HP **as a fraction of each pool**, not raw HP — Bunyan's 102
+would otherwise beat a Drifter at full health on 70, which is not the same
+question as who was winning.
 
 ## Hardware
 

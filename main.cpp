@@ -102,8 +102,11 @@ struct CardputerUi : SessionUi {
     d.printf("T%u %s\n", b.turn, s->isHost() ? "HOST" : "GUEST");
     for (int i = 0; i < 2; i++)
       d.printf("%s %d/%d mp%d\n", b.p[i].name, b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
-    d.println(s->state() == LS_WAIT_PEER ? "waiting for peer..."
-                                         : "1atk 2grd 3skl 4itm");
+    // Item charges are finite, so the count has to be visible or the player is
+    // guessing. Trailing digit keeps this at 20 chars, the width of the panel
+    // at text size 2 — see "Display" in README.md.
+    if (s->state() == LS_WAIT_PEER) d.println("waiting for peer...");
+    else d.printf("1atk 2grd 3skl 4itm%d\n", b.p[s->isHost() ? 0 : 1].items);
   }
 
   void log(const char* msg) override { Serial.println(msg); }

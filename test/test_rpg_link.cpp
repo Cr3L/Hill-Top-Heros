@@ -116,6 +116,100 @@ static void testLockstep() {
 
 // ----------------------------------------------------------------- sim rules
 
+// battleInit() must fully overwrite whatever was in the buffer. battleHash()
+// covers all 12 bytes of name[] and every trailing field, so any byte left
+// unwritten — padding after a short class name, a field added and forgotten —
+// makes two peers with the same seed disagree before a single turn is played.
+// A caller handing us a dirty stack BattleState is the normal case, not an
+// abuse: lockstepHolds() below does exactly that.
+static void testInitScrubsBuffer() {
+  printf("battleInit overwrites a dirty buffer\n");
+  for (uint32_t seed : {1u, 5u, 0x1234u, 0xFFFFFFFFu}) {
+    BattleState dirty, clean;
+    memset(&dirty, 0xAB, sizeof(dirty));
+    memset(&clean, 0x00, sizeof(clean));
+    battleInit(dirty, seed);
+    battleInit(clean, seed);
+    // Strictly stronger than comparing hashes: this also catches a byte the
+    // hash does not currently cover but a future field might.
+    CHECK(memcmp(&dirty, &clean, sizeof(dirty)) == 0);
+  }
+}
+
+// Every class must be reachable, and both sides must be drawn independently —
+// a draw that always produced a mirror would hide half the balance table.
+static void testClassDraw() {
+  printf("class draw covers every class in both seats\n");
+  const int nClasses = classCount();
+  CHECK(nClasses > 0 && nClasses <= 8);
+  bool seen[2][8] = {{false}};
+  for (uint32_t seed = 1; seed <= 256; seed++) {
+    BattleState b;
+    battleInit(b, seed);
+    for (int i = 0; i < 2; i++) {
+      CHECK(b.p[i].classId < nClasses);
+      CHECK(b.p[i].hp == b.p[i].hpMax && b.p[i].hp > 0);
+      CHECK(b.p[i].mp == b.p[i].mpMax);
+      CHECK(b.p[i].name[0] != '\0');
+      // A class must be able to afford its own skill at least once, or it
+      // starts the match with a button that can never do anything.
+      CHECK(skillCostOf(b.p[i]) > 0 && b.p[i].mp >= skillCostOf(b.p[i]));
+      seen[i][b.p[i].classId] = true;
+    }
+  }
+  for (int i = 0; i < 2; i++)
+    for (int c = 0; c < nClasses; c++) CHECK(seen[i][c]);
+
+  // Every field that steers a decision must be hash-covered, or two peers can
+  // disagree about it indefinitely without the stateHash exchange noticing.
+  // classId picks the skill formula; items decides whether ACT_ITEM rolls.
+  BattleState a, b;
+  battleInit(a, 1);
+  battleInit(b, 1);
+  CHECK(a.p[0].items == b.p[0].items && a.p[0].items > 0);
+  b.p[0].classId ^= 1;
+  CHECK(battleHash(a) != battleHash(b));
+
+  battleInit(b, 1);
+  b.p[0].items--;
+  CHECK(battleHash(a) != battleHash(b));
+}
+
+// The RNG-call contract, pinned in the suite rather than in a comment. Each
+// class's ACT_SKILL must consume a fixed number of rng.range() calls decided
+// only by classId — never by hp, mp or damage. A conditional roll added inside
+// one formula would still pass lockstepHolds() (both peers roll identically
+// when they hold the same class) and would only desync a mismatched pairing,
+// which is exactly the bug that is hardest to reproduce. This catches it at
+// the source: advance a reference Rng by the documented number of steps and
+// require the sim's stream to land in the same place.
+static void testSkillRngCallCounts() {
+  printf("skill rng call counts are fixed per class\n");
+  // Documented in the RNG CONTRACT block in rpg_link.cpp — keep in step.
+  const int calls[] = { 1, 1, 2, 1 };   // Bunyan, Drifter, Coyote, Voodoo
+  const int n = classCount();
+  CHECK(n == (int)(sizeof(calls) / sizeof(calls[0])));
+
+  for (uint32_t seed = 1; seed <= 64; seed++) {
+    BattleState b;
+    battleInit(b, seed);
+    // Only p[0] acts, and it is guaranteed to afford its skill on turn 0.
+    int cid = b.p[0].classId;
+    Rng expect = b.rng;
+    for (int k = 0; k < calls[cid]; k++) expect.range(0, 1);
+    battleResolve(b, ACT_SKILL, ACT_NONE);
+    CHECK(b.rng.s == expect.s);
+
+    // A fizzle must roll nothing at all, whatever the class.
+    BattleState f;
+    battleInit(f, seed);
+    f.p[0].mp = 0;
+    uint32_t before = f.rng.s;
+    battleResolve(f, ACT_SKILL, ACT_NONE);
+    CHECK(f.rng.s == before);
+  }
+}
+
 static void testNoSelfDamage() {
   printf("attacker never damages itself\n");
   // The old sim took a target byte off the radio and indexed p[target & 1],
@@ -147,10 +241,12 @@ static void testSkillCostsMp() {
   BattleState b;
   battleInit(b, 5);
   int16_t mp0 = b.p[0].mp;
+  uint8_t cost = skillCostOf(b.p[0]);  // per-class; do not hardcode
+  CHECK(cost > 0);
   battleResolve(b, ACT_SKILL, ACT_NONE);
-  CHECK(b.p[0].mp == mp0 - 6);
+  CHECK(b.p[0].mp == mp0 - cost);
 
-  b.p[0].mp = 2;                       // below cost
+  b.p[0].mp = 2;                       // below every class's cost
   int16_t foeHp = b.p[1].hp;
   battleResolve(b, ACT_SKILL, ACT_NONE);
   CHECK(b.p[0].mp == 2);               // fizzled, nothing spent
@@ -180,6 +276,66 @@ static void testFightTerminates() {
     CHECK(b.p[0].hp >= 0 && b.p[1].hp >= 0);
     CHECK(!(b.p[0].alive && b.p[1].alive));
   }
+}
+
+// testFightTerminates plays ATTACK-only, which converges for every pairing and
+// so cannot see a stalemate. This plays the whole move set, including ITEM,
+// which is the one action that ADDS hp. When ITEM was unlimited, ~a third of
+// these never finished — a real hang on two radios, since neither the sim nor
+// the session FSM caps the turn count.
+static void testFightTerminatesUnderAllActions() {
+  printf("fights terminate against a healing opponent\n");
+  const ActionId moves[] = { ACT_ATTACK, ACT_GUARD, ACT_SKILL, ACT_ITEM };
+  const int cap = MAX_TURNS * 4;       // generous; the sim should stop long first
+  int worst = 0;
+
+  for (uint32_t seed = 1; seed <= 400; seed++) {
+    // Two pilots. Uniform-random only grinds; the stalemate needs a player who
+    // heals whenever hurt, which is also what a human actually does.
+    for (int greedy = 0; greedy < 2; greedy++) {
+      BattleState b;
+      battleInit(b, seed);
+      Rng pick;                        // NOT the battle rng — that would desync
+      pick.seed(seed * 2654435761u + 1);
+      int guard = 0;
+      while (battleWinner(b) == -1 && guard++ < cap) {
+        ActionId a[2];
+        for (int i = 0; i < 2; i++)
+          a[i] = greedy ? (b.p[i].hp * 3 < b.p[i].hpMax ? ACT_ITEM
+                          : b.p[i].mp >= skillCostOf(b.p[i]) ? ACT_SKILL : ACT_ATTACK)
+                        : moves[pick.range(0, 3)];
+        battleResolve(b, a[0], a[1]);
+      }
+      if (guard > worst) worst = guard;
+      CHECK(guard < cap);
+    }
+  }
+  printf("  longest fight %d turns\n", worst);
+
+  // The pathological case the turn cap exists for: both sides spend every turn
+  // on an action that cannot do anything. Bounding the item pouch alone made
+  // this WORSE, because an empty pouch fizzles instead of healing.
+  for (uint32_t seed = 1; seed <= 64; seed++) {
+    BattleState b;
+    battleInit(b, seed);
+    b.p[0].items = b.p[1].items = 0;
+    b.p[0].mp    = b.p[1].mp    = 0;
+    int guard = 0;
+    while (battleWinner(b) == -1 && guard++ < cap)
+      battleResolve(b, ACT_ITEM, ACT_ITEM);
+    CHECK(guard < cap);
+    CHECK(battleWinner(b) != -1);      // the cap must produce a verdict
+  }
+
+  // And the heal stays bounded, or the pouch is decorative.
+  BattleState b;
+  battleInit(b, 9);
+  for (int i = 0; i < 10; i++) {
+    b.p[0].hp = 1;
+    battleResolve(b, ACT_ITEM, ACT_NONE);
+  }
+  CHECK(b.p[0].items == 0);
+  CHECK(b.p[0].hp == 1);               // pouch empty: the last heals did nothing
 }
 
 static void testWinnerReporting() {
@@ -222,11 +378,15 @@ int main() {
   testSealAndValidate();
   testSeedCommit();
   testLockstep();
+  testInitScrubsBuffer();
+  testClassDraw();
+  testSkillRngCallCounts();
   testNoSelfDamage();
   testGuardReducesDamage();
   testSkillCostsMp();
   testItemCapsAtMax();
   testFightTerminates();
+  testFightTerminatesUnderAllActions();
   testWinnerReporting();
   testRngGuards();
   testActionValidation();
