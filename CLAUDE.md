@@ -64,22 +64,26 @@ thin change with faint praise:
 
 ### Rules incoming code must not break
 
-- **The layering rule.** No RadioLib, M5, `millis()` or `Serial` in
-  `rpg_link.*` or `rpg_session.*`. This is the one that makes the test suite
-  possible; code that violates it is rejected on sight, however good it looks.
-- **The battle RNG.** `BattleState::rng` is consumed only from
-  `battleResolve()`. Anything else drawing from it desyncs the match instantly
-  and permanently.
-- **Wire layout.** Any change to `Packet` needs a `PROTO_VERSION` bump and the
-  `static_assert` on `sizeof(Packet)` updated. New combatant fields must be
-  added to `battleHash()`'s explicit field list or they are silently excluded
-  from desync detection.
-- **Hardware facts already established** — pins, the antenna switch, explicit
-  `SPI.begin()`. An incoming file that "cleans up" the antenna-switch block or
-  drops the explicit SPI setup is wrong, not tidier, and the symptom is a radio
-  that reports success while transmitting nothing.
+Stated once each, below, and defined in full in the sections named. Do not
+restate those definitions here — one copy, same as the pinout.
+
+- **The layering rule** — see "The layering rule that matters". The one that
+  makes the test suite possible, so a violation is rejected on sight however
+  good the code looks. Nothing enforces it mechanically yet; check by eye.
+- **The battle RNG** — see "Invariants the suite defends".
+- **Wire layout.** Beyond the invariants section: any change to `Packet` needs a
+  `PROTO_VERSION` bump *and* the `static_assert` on `sizeof(Packet)` updated.
+  An incoming change that alters the layout without both is a build break at
+  best and a silent mixed-firmware misparse at worst.
+- **Hardware facts already established** — see "Confirmed on hardware". The
+  trap specific to incoming code: a file that "cleans up" the antenna-switch
+  block or drops the explicit `SPI.begin()` looks tidier and is wrong, and the
+  symptom is a radio that reports success while transmitting nothing.
 - **Both suites pass.** `make -C test` is the arbiter. Incoming code that has
   not been run against it has not been tested, whatever its author claims.
+
+A merge, once approved, is an ordinary task: it re-enters the loop at step 1
+and is subject to every step of it. The review is what produces the plan.
 
 ### Handling
 
