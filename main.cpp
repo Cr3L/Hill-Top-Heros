@@ -106,7 +106,8 @@ void setup() {
     while (true) delay(100);
   }
   radio.setOutputPower(22);
-  radio.setRegulatorMode(RADIOLIB_SX126X_REGULATOR_DC_DC);
+  // setRegulatorMode() is protected in RadioLib 7.x; this is the public form.
+  radio.setRegulatorDCDC();
   radio.setDio1Action(onDio1);
   radio.startReceive();
 

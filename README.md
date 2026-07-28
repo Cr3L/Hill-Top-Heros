@@ -79,9 +79,17 @@ make -C test clean
 No Arduino toolchain needed; both are plain host binaries. They're fast, and
 both must pass before a commit. Binaries under `test/` are gitignored.
 
-Firmware itself builds under arduino-cli or PlatformIO with **M5Cardputer** and
-**RadioLib** — though see the caveats below, because that build has never
-actually been run.
+The firmware itself builds under PlatformIO (`platformio.ini`, board
+`m5stack-stamps3`, with **M5Cardputer** and **RadioLib**):
+
+```sh
+pio run              # build firmware
+pio run -t upload    # flash
+pio device monitor   # serial log, 115200 over USB CDC
+```
+
+It compiles and links clean. It has **not** been run on hardware yet — see the
+caveats below.
 
 ### What the simulation found
 
