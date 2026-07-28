@@ -142,15 +142,20 @@ struct CardputerUi : SessionUi {
     if (note && s && s->state() == LS_IDLE) d->println(note);
   }
 
+  // The panel's usable width after rotation — see "Display" in README.md.
+  // Also the fact behind "20 chars" below: 240px / 12px per glyph at text
+  // size 2. Named once so hpBar and that line can't quietly drift apart.
+  static constexpr int kPanelW = 240;
+
   // HP as a filled rect below each combatant's line. Text stays alongside it —
   // the exact number still drives decisions (a skill's mp cost, whether a hit
   // is lethal) — the bar is only there to make that number readable at a
   // glance instead of read digit by digit.
-  static void hpBar(LovyanGFX* g, int y, int hp, int hpMax) {
-    const int x = 0, w = 240, h = 4;
-    int fill = hpMax > 0 ? (w * hp) / hpMax : 0;
-    g->drawRect(x, y, w, h, TFT_WHITE);
-    if (fill > 0) g->fillRect(x + 1, y + 1, fill - 2 > 0 ? fill - 2 : 0, h - 2, TFT_WHITE);
+  static void hpBar(LovyanGFX& g, int y, int hp, int hpMax) {
+    const int h = 4;
+    int fill = hpMax > 0 ? (kPanelW * hp) / hpMax : 0;
+    g.drawRect(0, y, kPanelW, h, TFT_WHITE);
+    if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, TFT_WHITE);
   }
 
   void battle() override {
@@ -160,8 +165,9 @@ struct CardputerUi : SessionUi {
     d->printf("T%u %s\n", b.turn, s->isHost() ? "HOST" : "GUEST");
     for (int i = 0; i < 2; i++) {
       d->printf("%s %d/%d mp%d\n", b.p[i].name, b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
-      hpBar(d.operator->(), d->getCursorY(), b.p[i].hp, b.p[i].hpMax);
-      d->setCursor(0, d->getCursorY() + 6);   // bar height + a gap before next line
+      int y = d->getCursorY();
+      hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
+      d->setCursor(0, y + 6);   // bar height + a gap before next line
     }
     // Item charges are finite, so the count has to be visible or the player is
     // guessing. Trailing digit keeps this at 20 chars, the width of the panel
