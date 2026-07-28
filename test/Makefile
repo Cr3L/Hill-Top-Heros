@@ -7,7 +7,7 @@ CXXFLAGS := -std=c++17 -Wall -Wextra -O2 -g -I stub -I ..
 
 LINK_SRC := test_rpg_link.cpp ../rpg_link.cpp
 SESS_SRC := test_session.cpp ../rpg_session.cpp ../rpg_link.cpp
-HDRS     := ../rpg_link.h ../rpg_session.h stub/Arduino.h sim_channel.h
+HDRS     := ../rpg_link.h ../rpg_session.h stub/Arduino.h sim_channel.h test_common.h
 
 .PHONY: all clean
 all: run run_session

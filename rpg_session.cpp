@@ -16,7 +16,31 @@ const char* linkStateName(LinkState s) {
 
 // ------------------------------------------------------------------ lifecycle
 
+// Everything that belongs to one match, in one place. The header's member
+// initialisers and this function would otherwise be two lists of the same
+// fields drifting apart on every edit, so begin() calls this and rematch() is
+// just begin() again.
+void Session::resetMatchState() {
+  peerId_   = 0;
+  isHost_   = false;
+  peerSeed_ = 0;
+  memset(peerCommit_, 0, sizeof(peerCommit_));
+  txSeq_    = 1;
+  memset(seen_, 0, sizeof(seen_));
+  seenAt_   = 0;
+  myAction_ = peerAction_ = ACT_NONE;
+  peerActionIn_  = false;
+  pendingActive_ = false;
+  pendingProto_  = 0;
+  pendingTries_  = 0;
+  lastRxAt_      = 0;
+  lastBeacon_    = 0;
+  overMsg_       = "";
+  memset(&b_, 0, sizeof(b_));
+}
+
 void Session::begin(uint32_t id, uint32_t seed) {
+  resetMatchState();
   myId_   = id ? id : 1;               // 0 is reserved for broadcast
   mySeed_ = seed;
   netRng_.seed(myId_);                 // distinct jitter stream per device
@@ -25,23 +49,7 @@ void Session::begin(uint32_t id, uint32_t seed) {
 }
 
 void Session::rematch(uint32_t seed) {
-  uint32_t id = myId_;
-  peerId_ = 0;
-  isHost_ = false;
-  peerSeed_ = 0;
-  memset(peerCommit_, 0, sizeof(peerCommit_));
-  txSeq_ = 1;
-  memset(seen_, 0, sizeof(seen_));
-  seenAt_ = 0;
-  myAction_ = peerAction_ = ACT_NONE;
-  peerActionIn_ = false;
-  pendingActive_ = false;
-  pendingProto_ = 0;
-  pendingTries_ = 0;
-  lastBeacon_ = 0;
-  overMsg_ = "";
-  memset(&b_, 0, sizeof(b_));
-  begin(id, seed);
+  begin(myId_, seed);
 }
 
 void Session::startHosting() {
@@ -60,10 +68,6 @@ void Session::startJoining() {
 
 // --------------------------------------------------------------------- send
 
-void Session::txRaw(const Packet& p) {
-  tx_.send(p);
-}
-
 uint32_t Session::nextRetryDelay() {
   // Both peers submit their turn at once and would otherwise collide, retry in
   // lockstep, and collide again forever. Jitter is seeded per-device so the two
@@ -77,7 +81,7 @@ void Session::txPacket(Packet& p, bool wantAck, uint8_t protoAck) {
   p.seq = txSeq_++;
   if (p.seq == 0) p.seq = txSeq_++;    // seq 0 means "none" in ackSeq
   packetSeal(p);
-  txRaw(p);
+  tx_.send(p);
   if (wantAck) {
     pending_       = p;
     pendingActive_ = true;
@@ -102,9 +106,19 @@ void Session::sendAction(ActionId a) {
   p.dst       = peerId_;
   p.turn      = b_.turn;
   p.action    = (uint8_t)a;
-  p.target    = isHost_ ? 1 : 0;       // informational only; the sim ignores it
   p.stateHash = battleHash(b_);
   txPacket(p, true);
+}
+
+// Deliberately unacknowledged. There is only one pending retry slot, and the
+// joiner needs it for the battle turn it is about to submit — arming READY here
+// would just be clobbered by that action. The host retransmits JOIN_ACK until
+// it hears READY, so the host's retry timer is what recovers a lost READY.
+void Session::sendReady() {
+  Packet r{};
+  r.type = PKT_READY;
+  r.dst  = peerId_;
+  txPacket(r, false);
 }
 
 void Session::sendBye(ByeReason r) {
@@ -209,14 +223,7 @@ void Session::handlePacket(const Packet& p) {
         }
         peerSeed_ = p.seedHalf;
         battleInit(b_, mySeed_ ^ peerSeed_);
-        // Sent without a retry slot on purpose. There is only one pending slot,
-        // and we are about to enter the battle and submit a turn that needs it;
-        // arming READY here would just be clobbered by that action. The host
-        // retransmits JOIN_ACK until it hears READY, so the host's retry timer
-        // is what recovers a lost READY — see the branch below.
-        Packet r{};
-        r.type = PKT_READY; r.dst = peerId_;
-        txPacket(r, false);
+        sendReady();
         state_ = LS_MY_TURN;
         ui_.battle();
       } else if (!isHost_ && b_.turn == 0 &&
@@ -225,10 +232,7 @@ void Session::handlePacket(const Packet& p) {
         // LS_WAIT_PEER matters as much as LS_MY_TURN: we enter the battle the
         // instant we send READY and may well have submitted a turn already, so
         // by the time the host re-asks we are usually no longer on the menu.
-        // No retry slot: it would clobber the pending action we are waiting on.
-        Packet r{};
-        r.type = PKT_READY; r.dst = peerId_;
-        txPacket(r, false);
+        sendReady();
       }
       break;
 
@@ -318,7 +322,7 @@ void Session::pumpRetries() {
     return;
   }
   // Re-send the same seq so the peer's replay filter recognises it.
-  txRaw(pending_);
+  tx_.send(pending_);
   pendingSentAt_ = clk_.now();
   pendingDelay_  = nextRetryDelay();
   pendingTries_++;

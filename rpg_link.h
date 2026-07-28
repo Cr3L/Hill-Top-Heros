@@ -5,11 +5,18 @@
 // ---------------------------------------------------------------------------
 // Wire format. Everything is little-endian, packed, fixed size.
 // Keep this struct <= 40 bytes: at SF7/BW125/CR5 that is ~50ms airtime.
-// Current size: 38 bytes.
+// Current size: 37 bytes.
 // ---------------------------------------------------------------------------
 
 static const uint16_t PROTO_MAGIC   = 0x5247;  // 'RG'
-static const uint8_t  PROTO_VERSION = 2;       // bumped: commit[] added
+// BUMP THIS ON ANY CHANGE TO THE Packet LAYOUT — adding, removing, resizing or
+// reordering a field. Two builds that disagree about the layout must refuse to
+// pair, not misread each other's fields. The static_assert below is there to
+// make an accidental layout change fail the build rather than the link.
+//   1: original
+//   2: commit[8] added for seed commit-reveal
+//   3: dead `target` byte removed (38 -> 37)
+static const uint8_t  PROTO_VERSION = 3;
 
 enum PktType : uint8_t {
   PKT_BEACON   = 0x01,  // "I'm open for a duel" + commitment to my seed half
@@ -42,10 +49,14 @@ struct __attribute__((packed)) Packet {
   uint8_t  commit[8];  // handshake commitment (BEACON only)
   uint16_t turn;       // which turn this action belongs to
   uint8_t  action;     // ActionId, or ByeReason on PKT_BYE
-  uint8_t  target;     // legacy slot index; the sim ignores it, see below
   uint32_t stateHash;  // sender's pre-turn hash, i.e. post-turn hash of turn-1
   uint16_t crc;        // over all preceding bytes — MUST stay the last member
 };
+
+// Wire layout is frozen per PROTO_VERSION. If this fires, you changed the
+// packet: bump PROTO_VERSION above and update this size to match.
+static_assert(sizeof(Packet) == 37, "Packet layout changed - bump PROTO_VERSION");
+static_assert(sizeof(Packet) <= 40, "Packet too large for the airtime budget");
 
 uint16_t crc16(const uint8_t* d, size_t n);
 bool     packetValid(const Packet& p);

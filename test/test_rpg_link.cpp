@@ -8,19 +8,10 @@
 //   make -C test && test/run
 //
 #include "rpg_link.h"
+#include "test_common.h"
 #include <stdio.h>
 #include <string.h>
 #include <initializer_list>
-
-static int failures = 0;
-
-#define CHECK(cond)                                                        \
-  do {                                                                     \
-    if (!(cond)) {                                                         \
-      printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);             \
-      failures++;                                                          \
-    }                                                                      \
-  } while (0)
 
 // --------------------------------------------------------------- wire format
 
@@ -49,7 +40,7 @@ static void testSealAndValidate() {
       ((uint8_t*)&q)[byte] ^= (uint8_t)(1 << bit);
       if (packetValid(q)) {
         printf("  FAIL bit flip byte %zu bit %d survived CRC\n", byte, bit);
-        failures++;
+        g_failures++;
       }
     }
   }
@@ -240,10 +231,5 @@ int main() {
   testRngGuards();
   testActionValidation();
 
-  if (failures) {
-    printf("\n%d FAILURE(S)\n", failures);
-    return 1;
-  }
-  printf("\nall tests passed\n");
-  return 0;
+  return testSummary("all tests passed");
 }

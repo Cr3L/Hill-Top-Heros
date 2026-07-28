@@ -7,28 +7,9 @@
 // tampered commitment, and a desync abort. See sim_channel.h for what the
 // channel model does and does not represent.
 #include "sim_channel.h"
+#include "test_common.h"
 #include <stdio.h>
 #include <string.h>
-
-static int failures = 0;
-
-#define CHECK(cond)                                                        \
-  do {                                                                     \
-    if (!(cond)) {                                                         \
-      printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);             \
-      failures++;                                                          \
-    }                                                                      \
-  } while (0)
-
-#define CHECKM(cond, ...)                                                  \
-  do {                                                                     \
-    if (!(cond)) {                                                         \
-      printf("  FAIL %s:%d  ", __FILE__, __LINE__);                        \
-      printf(__VA_ARGS__);                                                 \
-      printf("\n");                                                        \
-      failures++;                                                          \
-    }                                                                      \
-  } while (0)
 
 static bool decided(const Session& s) {
   const char* m = s.overMsg();
@@ -327,7 +308,7 @@ static void testLossSweep() {
 
       if (sawDesync(r)) {
         printf("  FAIL desync at loss=%u%% seed=%u\n", rate, seed);
-        failures++;
+        g_failures++;
         continue;
       }
       // A host that never found a challenger is still beaconing, which is
@@ -344,7 +325,7 @@ static void testLossSweep() {
           printf("  FAIL hang at loss=%u%% seed=%u (host=%s join=%s)\n",
                  rate, seed, linkStateName(r.host.state()),
                  linkStateName(r.join.state()));
-        failures++;
+        g_failures++;
         continue;
       }
       if (decided(r.host) || decided(r.join)) {
@@ -353,7 +334,7 @@ static void testLossSweep() {
           if (rate == 0) {               // a clean channel must never split
             printf("  FAIL split verdict on a CLEAN channel, seed=%u "
                    "('%s' vs '%s')\n", seed, r.host.overMsg(), r.join.overMsg());
-            failures++;
+            g_failures++;
           }
           continue;
         }
@@ -382,10 +363,5 @@ int main() {
   testTamperedSeedRevealRejected();
   testLossSweep();
 
-  if (failures) {
-    printf("\n%d FAILURE(S)\n", failures);
-    return 1;
-  }
-  printf("\nall session tests passed\n");
-  return 0;
+  return testSummary("all session tests passed");
 }

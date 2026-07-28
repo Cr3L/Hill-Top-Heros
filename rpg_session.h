@@ -79,11 +79,12 @@ class Session {
   void setJitter(bool on) { jitter_ = on; }
 
  private:
-  void     txRaw(const Packet& p);
+  void     resetMatchState();          // single source of truth for a fresh match
   void     txPacket(Packet& p, bool wantAck, uint8_t protoAck = 0);
   uint32_t nextRetryDelay();
   void     sendAck(uint16_t seq, uint32_t to);
   void     sendAction(ActionId a);
+  void     sendReady();
   void     sendBye(ByeReason r);
   void     endMatch(const char* why, ByeReason reason, bool tellPeer);
   bool     seenContains(uint32_t src, uint16_t seq) const;
