@@ -94,6 +94,11 @@ struct CardputerUi : SessionUi {
   // flickering screen beats a blank one.
   bool buffered = false;
 
+  // HP as last drawn, per side. -1 means "not seen yet" so the first draw of
+  // a fresh match never flashes. Compared against on every battle() call to
+  // flash a row whose HP just changed.
+  int16_t lastHp[2] = {-1, -1};
+
   // Call once, after the panel's own text setup — the style is copied from it.
   bool beginDisplay() {
     // No PSRAM on this board (see platformio.ini), and M5Canvas's parent-taking
@@ -139,7 +144,13 @@ struct CardputerUi : SessionUi {
     Frame d(*this);
     // Idle only: a name for the game before the H=host/J=join prompt, so
     // booting doesn't drop straight into what reads like a diagnostic screen.
-    if (s && s->state() == LS_IDLE) d->println("HILL-TOP HEROS");
+    if (s && s->state() == LS_IDLE) {
+      d->println("HILL-TOP HEROS");
+      // A rematch rerolls classes, so the previous match's HP is meaningless
+      // here — reset so the new match's first draw doesn't flash on a value
+      // that was never actually a change.
+      lastHp[0] = lastHp[1] = -1;
+    }
     d->println(line);
     // Idle only. It is a boot diagnostic, not something to carry into a match.
     if (note && s && s->state() == LS_IDLE) d->println(note);
@@ -167,7 +178,16 @@ struct CardputerUi : SessionUi {
     Frame d(*this);
     d->printf("T%u %s\n", b.turn, s->isHost() ? "HOST" : "GUEST");
     for (int i = 0; i < 2; i++) {
+      // Flash (inverted colors) the row whose HP moved since the last draw —
+      // hit or heal, no separate visual language for a first cut. Lasts only
+      // until the next poll redraws normally, since battle() fires on every
+      // session poll, not just on turn resolution; a proper timed flash would
+      // need its own clock, not attempted here.
+      bool changed = lastHp[i] >= 0 && b.p[i].hp != lastHp[i];
+      if (changed) d.g.setTextColor(TFT_BLACK, TFT_WHITE);
       d->printf("%s %d/%d mp%d\n", b.p[i].name, b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
+      if (changed) d.g.setTextColor(TFT_WHITE, TFT_BLACK);
+      lastHp[i] = b.p[i].hp;
       int y = d->getCursorY();
       hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
       d->setCursor(0, y + 6);   // bar height + a gap before next line
