@@ -20,10 +20,13 @@ lockstep-determinism guarantee the suite already defends.
 
 - ~~`ACT_FLEE`.~~ Fixed `0657b44` — unconditional forfeit, key `5`, covered by
   `testFleeForfeits` and a `testLockstep` step. No wire-format change.
-- **More than 4 classes**, or per-class equipment/leveling. `battleInit()`
-  draws from 2 bits of the seed specifically because there are exactly 4
-  classes — this is a real wire-format decision (`PROTO_VERSION`-worthy), not
-  a content add.
+- **More than 4 classes**, or per-class equipment/leveling. Not sized like the
+  other bullets here — `battleInit()` draws the class from exactly 2 bits of
+  the seed *because* there are exactly 4 classes. Adding a 5th isn't a content
+  add, it's a seed-layout redesign: how many bits, what happens to in-flight
+  `seedCommit()` values from the old layout, whether old commits become
+  unparseable across the bump. Scope it as its own `PROTO_VERSION` task before
+  touching it, not as a line item alongside equipment/leveling.
 - **Status effects** (poison, stun, buffs). Nothing in `BattleState` models a
   multi-turn effect today; `guarding` is the only per-turn flag and it resets
   every turn. A real status system needs a duration field in `Combatant`,
@@ -31,17 +34,25 @@ lockstep-determinism guarantee the suite already defends.
   before or after the initiative order.
 - **Balance beyond the 4-cycle.** The current tuning (47–53%) is scripted-pilot
   only — no data from a human playing against another human. Anything added
-  above needs the hill-climb sweep re-run, not hand-tuned.
+  above needs the hill-climb sweep re-run, not hand-tuned. Depends on the class
+  bullet above landing first if that lands at all — re-sweeping against 4
+  classes and then changing the roster invalidates the sweep immediately.
 
 ## 2. Session / pairing UX (touches `rpg_session.*` and `main.cpp`)
 
 The protocol works; the experience around it is minimal.
 
-- **Rejoin after "peer unreachable."** Today that message is terminal — `q`
-  starts a fresh rematch with a new seed, there's no "try to reconnect to the
-  same match." Given the split-verdict risk already documented (~0.5% at 20%
-  loss), a linger-and-resume path was already flagged in `CLAUDE.md` as the
-  real fix, not a bigger retry budget.
+- **Rejoin after "peer unreachable" — the highest-value item in this group.**
+  Unlike the other three bullets below, this isn't speculative: the loss sweep
+  in `test/test_session.cpp` already measures a ~0.5% split-verdict rate at 20%
+  modelled loss, a quantified problem with real players, not a nice-to-have.
+  The other three (multi-peer, identity, version UX) only start to matter once
+  there's more than one pair of testers. Once hardware is confirmed, put this
+  ahead of group 3.
+  Today "peer unreachable" is terminal — `q` starts a fresh rematch with a new
+  seed, there's no "try to reconnect to the same match." A linger-and-resume
+  path was already flagged in `CLAUDE.md` as the real fix, not a bigger retry
+  budget.
 - **More than one peer.** `startHosting()`/`startJoining()` assume exactly two
   radios in range. No discovery UX for "which of three nearby hosts do I
   join," no room codes, nothing yet needs it since two units is the only
