@@ -40,10 +40,13 @@ this hardware, not a serious cryptographic commitment.
 | --- | --- | --- |
 | Idle | `h` / `j` | Host a duel / join one |
 | Your turn | `1` `2` `3` `4` | Attack / Guard / Skill / Item |
+| Your turn | `5` | Flee — forfeits the match immediately |
 | Match over | `q` | Rematch, same device ID, fresh seed |
 
-`ACT_FLEE` exists in the enum and is deliberately unimplemented — it falls
-through to a no-op.
+Fleeing is an unconditional forfeit, not an escape chance: it needs no RNG, so
+both peers agree the instant the packet lands rather than waiting on a
+`stateHash` round-trip to catch a disagreement. Fleeing on the same turn your
+opponent does is a draw, via the same path a double-KO already used.
 
 ## Layout
 

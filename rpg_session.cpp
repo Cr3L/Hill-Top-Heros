@@ -397,6 +397,7 @@ void Session::onKey(char c) {
       if (c == '2') a = ACT_GUARD;
       if (c == '3') a = ACT_SKILL;
       if (c == '4') a = ACT_ITEM;
+      if (c == '5') a = ACT_FLEE;
       if (a != ACT_NONE) {
         myAction_ = a;
         sendAction(a);

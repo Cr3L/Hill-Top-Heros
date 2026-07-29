@@ -101,6 +101,7 @@ static void testLockstep() {
     {ACT_ITEM,   ACT_SKILL}, {ACT_ATTACK, ACT_ATTACK},
     {ACT_GUARD,  ACT_SKILL}, {ACT_ATTACK, ACT_ITEM},
     {ACT_NONE,   ACT_ATTACK}, {ACT_SKILL, ACT_SKILL},
+    {ACT_ATTACK, ACT_FLEE},                            // ends the match
   };
   const int n = (int)(sizeof(script) / sizeof(script[0]));
   for (uint32_t seed : {1u, 0x1234u, 0xFFFFFFFFu, 0xA5A5A5A5u})
@@ -221,6 +222,30 @@ static void testNoSelfDamage() {
   battleResolve(b, ACT_ATTACK, ACT_NONE);
   CHECK(b.p[0].hp == hostBefore);
   CHECK(b.p[1].hp < b.p[1].hpMax);
+}
+
+static void testFleeForfeits() {
+  printf("flee forfeits unconditionally\n");
+
+  // One side flees: they lose outright, no roll involved, no damage exchanged.
+  {
+    BattleState b;
+    battleInit(b, 1);
+    int16_t foeHpBefore = b.p[1].hp;
+    battleResolve(b, ACT_FLEE, ACT_NONE);
+    CHECK(battleWinner(b) == 1);
+    CHECK(b.p[1].hp == foeHpBefore);    // the side that stayed took no damage
+  }
+
+  // Both flee the same turn: a draw via the same dead-heat path a double-KO
+  // already uses, not a special case.
+  {
+    BattleState b;
+    battleInit(b, 1);
+    battleResolve(b, ACT_FLEE, ACT_FLEE);
+    CHECK(battleWinner(b) == 2);
+  }
+  // Determinism is covered by testLockstep(), which includes an ACT_FLEE step.
 }
 
 static void testGuardReducesDamage() {
@@ -424,6 +449,7 @@ int main() {
   testClassDraw();
   testSkillRngCallCounts();
   testNoSelfDamage();
+  testFleeForfeits();
   testGuardReducesDamage();
   testSkillCostsMp();
   testItemCapsAtMax();

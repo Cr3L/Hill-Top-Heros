@@ -173,7 +173,11 @@ struct CardputerUi : SessionUi {
     // guessing. Trailing digit keeps this at 20 chars, the width of the panel
     // at text size 2 — see "Display" in README.md.
     if (s->state() == LS_WAIT_PEER) d->println("waiting for peer...");
-    else d->printf("1atk 2grd 3skl 4itm%d\n", b.p[s->isHost() ? 0 : 1].items);
+    // Flee forfeits outright (see rpg_link.cpp), so it's kept on its own line
+    // rather than folded into the move row above, where a stray keypress
+    // meaning something else entirely would be one column away.
+    else d->printf("1atk 2grd 3skl 4itm%d\n5flee (forfeits!)\n",
+                    b.p[s->isHost() ? 0 : 1].items);
   }
 
   void log(const char* msg) override { Serial.println(msg); }

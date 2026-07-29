@@ -222,7 +222,16 @@ static void applyAction(BattleState& b, int self, ActionId a) {
       me.items--;
       healBy(me, 18 + (int32_t)b.rng.range(0, 6));
       break;
-    default: break;                      // ACT_NONE / ACT_FLEE: not yet a move
+    case ACT_FLEE:
+      // Immediate, unconditional forfeit. Deterministic and rng-free like
+      // every other fizzle path, so both peers agree the instant this packet
+      // lands rather than needing the stateHash round-trip to catch a
+      // disagreement. If both sides flee the same turn, both end up !alive
+      // and battleWinner() reports it as the existing dead-heat draw — no
+      // separate case needed.
+      me.alive = 0;
+      break;
+    default: break;                      // ACT_NONE: not yet a move
   }
   if (foe.hp <= 0) { foe.hp = 0; foe.alive = 0; }
 }
