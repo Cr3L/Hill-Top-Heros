@@ -111,6 +111,10 @@ on both ends.
 | `main.cpp` | Hardware glue: SX1262, M5 display and keyboard, entry points. |
 | `test/` | Host test suite. No hardware, no Arduino toolchain. |
 
+**What's built vs. what's still missing for a shippable game is tracked in
+[`ROADMAP.md`](ROADMAP.md)**, not here — update it when a roadmap item lands or
+a new gap is found, same as this file gets updated when the loop changes.
+
 ### The layering rule that matters
 
 `rpg_link.cpp` and `rpg_session.cpp` **must stay free of hardware dependencies**
