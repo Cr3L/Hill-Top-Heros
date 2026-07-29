@@ -137,6 +137,9 @@ struct CardputerUi : SessionUi {
 
   void status(const char* line) override {
     Frame d(*this);
+    // Idle only: a name for the game before the H=host/J=join prompt, so
+    // booting doesn't drop straight into what reads like a diagnostic screen.
+    if (s && s->state() == LS_IDLE) d->println("HILL-TOP HEROS");
     d->println(line);
     // Idle only. It is a boot diagnostic, not something to carry into a match.
     if (note && s && s->state() == LS_IDLE) d->println(note);
