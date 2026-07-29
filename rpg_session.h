@@ -129,6 +129,7 @@ class Session {
   Rng       netRng_;                   // retry jitter ONLY, never the sim's rng
   bool      jitter_ = true;
   const char* overMsg_ = "";
+  bool      versionMismatchShown_ = false;  // one status line per pairing attempt
 
   BattleState b_{};
 };

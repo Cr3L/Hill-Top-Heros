@@ -36,6 +36,7 @@ void Session::resetMatchState() {
   lastRxAt_      = 0;
   lastBeacon_    = 0;
   overMsg_       = "";
+  versionMismatchShown_ = false;
   memset(&b_, 0, sizeof(b_));
 }
 
@@ -306,7 +307,19 @@ void Session::handlePacket(const Packet& p) {
 void Session::pumpRx() {
   Packet p{};
   while (tx_.recv(p)) {
-    if (packetValid(p)) handlePacket(p);
+    if (packetValid(p)) {
+      handlePacket(p);
+    } else if (!versionMismatchShown_ && packetVersionMismatch(p) &&
+               (state_ == LS_IDLE || state_ == LS_BEACONING ||
+                state_ == LS_JOINING || state_ == LS_HANDSHAKE)) {
+      // Only before/during pairing: this is the "why can't I find my peer"
+      // moment version skew actually blocks. Mid-match it would just be
+      // stray traffic, not something to interrupt a live battle over. Once
+      // per attempt, not once per packet — a beaconing mismatch would
+      // otherwise repeat every BEACON_MS forever.
+      versionMismatchShown_ = true;
+      ui_.status("peer is on a different version");
+    }
     if (state_ == LS_OVER) return;
   }
 }

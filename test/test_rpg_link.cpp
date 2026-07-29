@@ -48,6 +48,36 @@ static void testSealAndValidate() {
   Packet wrongVersion = p;
   wrongVersion.version = PROTO_VERSION + 1;
   CHECK(!packetValid(wrongVersion));
+  // Not resealed: crc is now stale for its own bytes, same as a single-bit
+  // flip. packetVersionMismatch must reject it exactly like packetValid does.
+  CHECK(!packetVersionMismatch(wrongVersion));
+}
+
+static void testVersionMismatch() {
+  printf("version mismatch reported distinctly from garbage\n");
+  // packetSeal() always writes *this build's* PROTO_VERSION, so a peer on a
+  // different version has to be simulated by hand: same crc formula, a
+  // different version byte baked in before the crc is computed over it —
+  // exactly what a differently-versioned peer's own packetSeal() would do.
+  Packet p{};
+  p.type = PKT_ACTION; p.src = 7; p.seq = 3; p.action = ACT_ATTACK;
+  p.magic   = PROTO_MAGIC;
+  p.version = PROTO_VERSION + 1;
+  p.crc     = crc16((const uint8_t*)&p, sizeof(Packet) - sizeof(uint16_t));
+  CHECK(!packetValid(p));
+  CHECK(packetVersionMismatch(p));
+
+  // Plain garbage (bad magic) must not be reported as a version mismatch.
+  Packet garbage = p;
+  garbage.magic ^= 0xFF;
+  CHECK(!packetVersionMismatch(garbage));
+
+  // Same version as us: not a mismatch, even though this path is only ever
+  // reached after packetValid already failed for some other reason.
+  Packet sameVersion = p;
+  sameVersion.version = PROTO_VERSION;
+  packetSeal(sameVersion);
+  CHECK(!packetVersionMismatch(sameVersion));
 }
 
 // ------------------------------------------------------------ commit-reveal
@@ -443,6 +473,7 @@ static void testActionValidation() {
 int main() {
   testPacketLayout();
   testSealAndValidate();
+  testVersionMismatch();
   testSeedCommit();
   testLockstep();
   testInitScrubsBuffer();

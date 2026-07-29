@@ -67,6 +67,19 @@ uint16_t crc16(const uint8_t* d, size_t n);
 bool     packetValid(const Packet& p);
 void     packetSeal(Packet& p);   // fills magic/version/crc
 
+// True for a well-formed packet (right magic, intact CRC) from a peer running
+// a different PROTO_VERSION — distinct from packetValid's false, which also
+// covers plain noise/garbage. Lets a caller tell "wrong version" apart from
+// "not a packet at all" without changing packetValid's own pass/fail meaning.
+//
+// Only reliable when the two versions share Packet's layout: the CRC is
+// recomputed over *our* sizeof(Packet), so a peer whose version changed the
+// struct size (see the PROTO_VERSION history above) sends bytes that don't
+// line up with our fields at all, and this fails closed — returns false,
+// same as packetValid, rather than reporting the mismatch. A same-size bump
+// (like v4) is the case this actually catches.
+bool packetVersionMismatch(const Packet& p);
+
 // Commit-reveal for seed agreement. The host broadcasts commitOf(hostSeed) in
 // its beacon and only reveals hostSeed in JOIN_ACK, so a joiner cannot pick its
 // own half to steer the final seed. 64 bits of commitment is enough that

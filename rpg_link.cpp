@@ -26,9 +26,16 @@ void packetSeal(Packet& p) {
   p.crc     = crc16((const uint8_t*)&p, sizeof(Packet) - sizeof(uint16_t));
 }
 
-bool packetValid(const Packet& p) {
-  if (p.magic != PROTO_MAGIC || p.version != PROTO_VERSION) return false;
+static bool packetCrcOk(const Packet& p) {
   return p.crc == crc16((const uint8_t*)&p, sizeof(Packet) - sizeof(uint16_t));
+}
+
+bool packetValid(const Packet& p) {
+  return p.magic == PROTO_MAGIC && p.version == PROTO_VERSION && packetCrcOk(p);
+}
+
+bool packetVersionMismatch(const Packet& p) {
+  return p.magic == PROTO_MAGIC && p.version != PROTO_VERSION && packetCrcOk(p);
 }
 
 // ------------------------------------------------------------ seed commitment
