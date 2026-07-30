@@ -191,9 +191,13 @@ matching combatant state on both screens — beacon, join, commit-reveal and sim
 init all completed over the air, not just in `pio device monitor` on one unit.
 This also confirms the two `seedCommit()` paths agree device-to-device: a
 mismatch there is `BYE_BAD_COMMIT` territory, and pairing succeeded instead.
-Not yet confirmed: a full match played to `battleWinner()` on hardware, and
-recovery from a mid-match packet loss (both untested — the sweep in
-`test/test_session.cpp` is still simulation only).
+
+**A full match has been played to a verdict on hardware.** Host and joiner
+carried a real match through to `battleWinner()`, both agreeing on the result.
+Still not confirmed: recovery from a mid-match packet loss/rejoin — the
+split-verdict numbers in `test/test_session.cpp` remain simulation only, and
+this was a clean two-unit-at-6-inches run, not a stress test of range or
+interference.
 
 **The pinout and the panel geometry live in `README.md`** — one copy, don't
 restate them here. What matters when editing `main.cpp` is which parts of that

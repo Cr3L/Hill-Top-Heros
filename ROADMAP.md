@@ -89,10 +89,11 @@ Safe to build without touching anything the test suite defends.
 ## 4. Radio / compliance (touches `main.cpp`, hardware-gated)
 
 - ~~The two-radio test itself.~~ Confirmed: host and joiner paired over actual
-  RF and reached `T0` with matching state on both screens. Unblocks the items
-  below that were waiting on it. Still open from here: a full match played to
-  `battleWinner()` on hardware, and real packet loss / rejoin behavior — the
-  split-verdict rate in `test/test_session.cpp` is still simulation only.
+  RF and played a full match to a verdict both sides agreed on. Unblocks the
+  items below that were waiting on it. Still open from here: real packet loss
+  / rejoin behavior at range or with interference — the split-verdict rate in
+  `test/test_session.cpp` is still simulation only, and everything on hardware
+  so far has been two units six inches apart with a clean channel.
 - **EU frequency + duty cycle.** `RF_FREQ_MHZ` is hardcoded 915.0; `CLAUDE.md`
   already flags 868.0 + duty-cycle budget as unsettled. Only urgent if a unit
   is going on air outside US/AU.
