@@ -99,6 +99,13 @@ struct CardputerUi : SessionUi {
   // flash a row whose HP just changed.
   int16_t lastHp[2] = {-1, -1};
 
+  // Most recent nonzero HP change per side, held until the next one — this is
+  // what makes "what just happened" readable after the single-frame flash has
+  // already passed. 0 doubles as "no change seen yet": a delta is only ever
+  // stored when hp actually differs, so a stored 0 can only mean unset, never
+  // a real zero-change turn.
+  int16_t lastDelta[2] = {0, 0};
+
   // Call once, after the panel's own text setup — the style is copied from it.
   bool beginDisplay() {
     // No PSRAM on this board (see platformio.ini), and M5Canvas's parent-taking
@@ -150,6 +157,7 @@ struct CardputerUi : SessionUi {
       // here — reset so the new match's first draw doesn't flash on a value
       // that was never actually a change.
       lastHp[0] = lastHp[1] = -1;
+      lastDelta[0] = lastDelta[1] = 0;
     }
     d->println(line);
     // Idle only. It is a boot diagnostic, not something to carry into a match.
@@ -175,8 +183,16 @@ struct CardputerUi : SessionUi {
   void battle() override {
     if (!s) return;
     const BattleState& b = s->battle();
+    int me = s->isHost() ? 0 : 1;
     Frame d(*this);
-    d->printf("T%u %s\n", b.turn, s->isHost() ? "HOST" : "GUEST");
+
+    // Turn banner: the single strongest signal for "whose move is it right
+    // now", inverted so it reads at a glance instead of by parsing text.
+    bool myMove = s->state() == LS_MY_TURN;
+    d.g.setTextColor(TFT_BLACK, TFT_WHITE);
+    d->printf("T%-3u%s\n", b.turn, myMove ? "YOUR MOVE" : "OPP'S MOVE...");
+    d.g.setTextColor(TFT_WHITE, TFT_BLACK);
+
     for (int i = 0; i < 2; i++) {
       // Flash (inverted colors) the row whose HP moved since the last draw —
       // hit or heal, no separate visual language for a first cut. Lasts only
@@ -184,23 +200,44 @@ struct CardputerUi : SessionUi {
       // session poll, not just on turn resolution; a proper timed flash would
       // need its own clock, not attempted here.
       bool changed = lastHp[i] >= 0 && b.p[i].hp != lastHp[i];
-      if (changed) d.g.setTextColor(TFT_BLACK, TFT_WHITE);
-      d->printf("%s %d/%d mp%d\n", b.p[i].name, b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
+      if (changed) {
+        lastDelta[i] = b.p[i].hp - lastHp[i];
+        d.g.setTextColor(TFT_BLACK, TFT_WHITE);
+      }
+      // '>' marks the player's own row — same info the old code left the
+      // player to infer from remembering which class they'd been dealt.
+      d->printf("%c%s %d/%d M%d\n", i == me ? '>' : ' ', b.p[i].name,
+                 b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
       if (changed) d.g.setTextColor(TFT_WHITE, TFT_BLACK);
       lastHp[i] = b.p[i].hp;
       int y = d->getCursorY();
       hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
       d->setCursor(0, y + 6);   // bar height + a gap before next line
     }
-    // Item charges are finite, so the count has to be visible or the player is
-    // guessing. Trailing digit keeps this at 20 chars, the width of the panel
-    // at text size 2 — see "Display" in README.md.
-    if (s->state() == LS_WAIT_PEER) d->println("waiting for peer...");
-    // Flee forfeits outright (see rpg_link.cpp), so it's kept on its own line
-    // rather than folded into the move row above, where a stray keypress
-    // meaning something else entirely would be one column away.
-    else d->printf("1atk 2grd 3skl 4itm%d\n5flee (forfeits!)\n",
-                    b.p[s->isHost() ? 0 : 1].items);
+
+    // What just happened, held over from the last resolved turn rather than
+    // shown only for the one frame the flash above lasts — this is what
+    // makes it possible to still tell what happened while thinking through
+    // the next move.
+    if (lastDelta[0] || lastDelta[1]) {
+      d->print(' ');
+      if (lastDelta[0]) d->printf("%s%+d  ", me == 0 ? "You" : "Opp", lastDelta[0]);
+      if (lastDelta[1]) d->printf("%s%+d", me == 1 ? "You" : "Opp", lastDelta[1]);
+      d->println();
+    } else {
+      d->println();  // keep the layout stable turn 0, before anything's happened
+    }
+
+    // Full words + bracketed keys over the old single dense line: the thing
+    // "button smashing" actually meant was not being able to read the menu
+    // fast enough to trust a keypress, not that the keys themselves changed.
+    if (s->state() == LS_WAIT_PEER) {
+      d->println("Waiting for OPP...");
+    } else {
+      d->println("1)Attack  2)Guard");
+      d->printf("3)Skill   4)Item x%d\n", b.p[me].items);
+      d->println("5)Flee - FORFEITS");
+    }
   }
 
   void log(const char* msg) override { Serial.println(msg); }
