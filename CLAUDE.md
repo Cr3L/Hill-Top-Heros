@@ -149,6 +149,11 @@ make -C test clean
   loss, collisions, half-duplex deafness, duplication, reordering, in virtual
   time.
 
+To iterate on one suite without rebuilding both: `make -C test run &&
+test/run` or `make -C test run_session && test/run_session`. Both binaries are
+plain C++17 host builds (`g++ -std=c++17 -I test/stub -I .`) with no test-name
+filtering — each `main()` runs its whole list of cases in order.
+
 Both must pass before any commit. The suite is fast; there is no excuse for
 skipping it.
 
