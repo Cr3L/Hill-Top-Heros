@@ -186,6 +186,15 @@ booted on a Cardputer ADV with the official **Cap LoRa-1262**.
 
 Boot reports `radio.begin=0 ioe=1`, and `h`/`j` drive the state machine.
 
+**Two units have paired over actual RF.** Host and joiner reached `T0` with
+matching combatant state on both screens — beacon, join, commit-reveal and sim
+init all completed over the air, not just in `pio device monitor` on one unit.
+This also confirms the two `seedCommit()` paths agree device-to-device: a
+mismatch there is `BYE_BAD_COMMIT` territory, and pairing succeeded instead.
+Not yet confirmed: a full match played to `battleWinner()` on hardware, and
+recovery from a mid-match packet loss (both untested — the sweep in
+`test/test_session.cpp` is still simulation only).
+
 **The pinout and the panel geometry live in `README.md`** — one copy, don't
 restate them here. What matters when editing `main.cpp` is which parts of that
 setup look removable and are not:
@@ -211,15 +220,13 @@ setup look removable and are not:
 
 ### Still unverified
 
-- **RF has never actually radiated.** `ioe=1` only means the expander answered
-  on I2C. Nothing has been transmitted or received between two radios.
 - **`RF_FREQ_MHZ` is 915.0** (US/AU). EU is 868.0, and at 22 dBm with a 2 s
   beacon the duty cycle is over the 1% limit.
-- **`seedCommit()` takes the mbedtls SHA-256 path on device and the FNV
-  fallback on host.** The device path now compiles and runs, but the two are
-  still never compared against each other. Two peers that disagreed here could
-  not pair at all (`BYE_BAD_COMMIT`); device-to-device they always agree, so
-  this is latent rather than live. Older ESP-IDF wants `mbedtls_sha256_ret()`.
+- **A match played to completion on hardware**, and mid-match packet loss /
+  rejoin behavior — the pairing handshake is now confirmed live, but the loss
+  sweep and split-verdict numbers in `test/test_session.cpp` are still
+  simulation only. Older ESP-IDF wants `mbedtls_sha256_ret()` if the mbedtls
+  path ever needs revisiting.
 
 ## Things simulation has NOT proven
 

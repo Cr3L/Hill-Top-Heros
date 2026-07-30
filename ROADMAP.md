@@ -88,8 +88,11 @@ Safe to build without touching anything the test suite defends.
 
 ## 4. Radio / compliance (touches `main.cpp`, hardware-gated)
 
-- **The two-radio test itself.** Still nothing has radiated. This blocks or
-  informs almost everything above it can't be scheduled around.
+- ~~The two-radio test itself.~~ Confirmed: host and joiner paired over actual
+  RF and reached `T0` with matching state on both screens. Unblocks the items
+  below that were waiting on it. Still open from here: a full match played to
+  `battleWinner()` on hardware, and real packet loss / rejoin behavior — the
+  split-verdict rate in `test/test_session.cpp` is still simulation only.
 - **EU frequency + duty cycle.** `RF_FREQ_MHZ` is hardcoded 915.0; `CLAUDE.md`
   already flags 868.0 + duty-cycle budget as unsettled. Only urgent if a unit
   is going on air outside US/AU.
@@ -104,9 +107,10 @@ Safe to build without touching anything the test suite defends.
   drive-by addition alongside something else.
 - **Group 2 and 3 don't share files with group 1** except where `main.cpp`
   calls into `rpg_session.h` — low collision risk to interleave.
-- **The two-radio test (group 4) isn't really "a task"** — it's a
-  precondition that changes what "done" means for several items above
-  (rejoin UX, split verdicts, retry jitter) once it's possible to run.
+- **The two-radio test (group 4) has landed.** Pairing over actual RF is
+  confirmed, which unblocks live checks on several items above (rejoin UX,
+  split verdicts, retry jitter, and the group-3 visual items) that were
+  previously "verified in the sim only."
 - Nothing here is prioritized against anything else yet — that's a
   conversation for whoever's picking the next task, not something to bake
   into this document.
