@@ -139,7 +139,21 @@ struct CardputerUi : SessionUi {
       g.fillScreen(TFT_BLACK);
       g.setCursor(0, 0);
     }
-    ~Frame() { if (ui.buffered) ui.canvas.pushSprite(0, 0); }
+    ~Frame() {
+      // PROTO_VERSION, not a separate game-version scheme — the two units get
+      // reflashed independently all evening, and this is the one number that
+      // actually determines whether they can pair at all. Small and in the
+      // corner: a sanity check on every screen, not something to compete with
+      // the battle HUD for attention.
+      g.setTextSize(1);
+      g.setTextDatum(textdatum_t::bottom_right);
+      char v[8];
+      snprintf(v, sizeof(v), "v%u", PROTO_VERSION);
+      g.drawString(v, g.width(), g.height());
+      g.setTextDatum(textdatum_t::top_left);
+      g.setTextSize(2);
+      if (ui.buffered) ui.canvas.pushSprite(0, 0);
+    }
     // A copy would push the same frame twice. Nothing does today; this is here
     // so nothing can.
     Frame(const Frame&) = delete;
