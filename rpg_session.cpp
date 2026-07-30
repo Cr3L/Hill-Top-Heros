@@ -35,6 +35,7 @@ void Session::resetMatchState() {
   pendingTries_  = 0;
   lastRxAt_      = 0;
   lastBeacon_    = 0;
+  turnStartAt_   = 0;
   overMsg_       = "";
   versionMismatchShown_ = false;
   memset(&b_, 0, sizeof(b_));
@@ -225,8 +226,7 @@ void Session::handlePacket(const Packet& p) {
         peerSeed_ = p.seedHalf;
         battleInit(b_, mySeed_ ^ peerSeed_);
         sendReady();
-        state_ = LS_MY_TURN;
-        ui_.battle();
+        enterMyTurn();
       } else if (!isHost_ && b_.turn == 0 &&
                  (state_ == LS_MY_TURN || state_ == LS_WAIT_PEER)) {
         // Our READY was lost and the host is still asking. Say it again.
@@ -240,8 +240,7 @@ void Session::handlePacket(const Packet& p) {
     case PKT_READY:
       if (state_ == LS_HANDSHAKE && isHost_) {
         battleInit(b_, mySeed_ ^ peerSeed_);
-        state_ = LS_MY_TURN;
-        ui_.battle();
+        enterMyTurn();
       }
       break;
 
@@ -369,8 +368,7 @@ void Session::resolveTurn() {
 
   int w = battleWinner(b_);
   if (w == -1) {
-    state_ = LS_MY_TURN;
-    ui_.battle();
+    enterMyTurn();
   } else {
     // Tell the peer. It is holding the same pair of actions and may still be
     // waiting on an acknowledgement we already sent; without this it grinds
@@ -387,12 +385,32 @@ void Session::pumpResolve() {
   resolveTurn();
 }
 
+void Session::enterMyTurn() {
+  state_ = LS_MY_TURN;
+  turnStartAt_ = clk_.now();
+  ui_.battle();
+}
+
+void Session::chooseAction(ActionId a) {
+  myAction_ = a;
+  sendAction(a);
+  state_ = LS_WAIT_PEER;
+  ui_.battle();
+}
+
+void Session::pumpMoveTimer() {
+  if (state_ != LS_MY_TURN) return;
+  if (clk_.now() - turnStartAt_ < MOVE_TIMEOUT_MS) return;
+  chooseAction(ACT_ATTACK);
+}
+
 void Session::poll() {
   pumpRx();
   pumpRetries();
   pumpWatchdog();
   pumpBeacon();
   pumpResolve();
+  pumpMoveTimer();
 }
 
 // ----------------------------------------------------------------- keyboard
@@ -411,12 +429,7 @@ void Session::onKey(char c) {
       if (c == '3') a = ACT_SKILL;
       if (c == '4') a = ACT_ITEM;
       if (c == '5') a = ACT_FLEE;
-      if (a != ACT_NONE) {
-        myAction_ = a;
-        sendAction(a);
-        state_ = LS_WAIT_PEER;
-        ui_.battle();
-      }
+      if (a != ACT_NONE) chooseAction(a);
       break;
     }
 

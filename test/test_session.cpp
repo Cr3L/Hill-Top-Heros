@@ -394,6 +394,24 @@ static void testSessionReachesTurnCap() {
   CHECK(capped == 40);
 }
 
+// --------------------------------------------------------- move timer
+
+// Found on real hardware: nobody presses a key, so this exercises
+// MOVE_TIMEOUT_MS the same way an idle or absent player would.
+static void testMoveTimerAutoAttacks() {
+  printf("nobody moves: MOVE_TIMEOUT_MS auto-attacks for both sides\n");
+  Rig r;
+  r.begin(4);
+  r.run(Session::MOVE_TIMEOUT_MS + 5000, /*autoPlay=*/false);
+  CHECKM(r.host.battle().turn > 0, "host stuck on turn %u",
+         r.host.battle().turn);
+  CHECK(r.host.battle().turn == r.join.battle().turn);
+  CHECK(battleHash(r.host.battle()) == battleHash(r.join.battle()));
+  // Nothing else fired the peer-unreachable path along the way.
+  CHECK(r.host.state() == LS_MY_TURN || r.host.state() == LS_WAIT_PEER);
+  CHECK(r.join.state() == LS_MY_TURN || r.join.state() == LS_WAIT_PEER);
+}
+
 int main() {
   testCleanMatch();
   testLostHandshake();
@@ -406,6 +424,7 @@ int main() {
   testTamperedSeedRevealRejected();
   testLossSweep();
   testSessionReachesTurnCap();
+  testMoveTimerAutoAttacks();
 
   return testSummary("all session tests passed");
 }

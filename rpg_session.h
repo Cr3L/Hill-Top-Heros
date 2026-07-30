@@ -49,7 +49,15 @@ class Session {
   // 4 was measurably too few: a couple of unlucky ACK losses at the end of a
   // match left one peer stranded. See the loss sweep in test/test_session.cpp.
   static constexpr uint8_t  MAX_TRIES       = 6;
-  static constexpr uint32_t PEER_TIMEOUT_MS = 20000;
+  // Found on real hardware, not in the sim: a human takes longer to pick a
+  // move than any scripted test action does, and no packets flow while both
+  // sides just sit on the menu. Must clear MOVE_TIMEOUT_MS with margin, or a
+  // legitimate decision window trips this first and reports a live peer as
+  // "peer timed out" / "peer left".
+  static constexpr uint32_t PEER_TIMEOUT_MS = 40000;
+  // Per-turn deadline to pick a move. Auto-attacks for whoever misses it, so
+  // a slow or absent player can't stall the match indefinitely.
+  static constexpr uint32_t MOVE_TIMEOUT_MS = 30000;
   static constexpr uint32_t BEACON_MS       = 2000;
   static constexpr uint8_t  SEEN_SLOTS      = 4;
 
@@ -95,7 +103,10 @@ class Session {
   void     pumpWatchdog();
   void     pumpBeacon();
   void     pumpResolve();
+  void     pumpMoveTimer();
   void     resolveTurn();              // both actions in hand; advance the sim
+  void     enterMyTurn();              // LS_MY_TURN entry, every path
+  void     chooseAction(ActionId a);   // shared by onKey and the move timer
 
   Transport&  tx_;
   Clock&      clk_;
@@ -126,6 +137,7 @@ class Session {
 
   uint32_t  lastRxAt_ = 0;             // last valid packet from the peer
   uint32_t  lastBeacon_ = 0;
+  uint32_t  turnStartAt_ = 0;          // when we entered LS_MY_TURN, for MOVE_TIMEOUT_MS
   Rng       netRng_;                   // retry jitter ONLY, never the sim's rng
   bool      jitter_ = true;
   const char* overMsg_ = "";
