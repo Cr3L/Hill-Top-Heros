@@ -181,6 +181,7 @@ struct CardputerUi : SessionUi {
       d.g.setTextDatum(textdatum_t::top_left);
       d->setCursor(12, 76);
       d->println(line);
+      d->println("P=practice (1 player)");
       if (note) {
         d->setCursor(12, 112);
         d->println(note);
@@ -206,25 +207,17 @@ struct CardputerUi : SessionUi {
     if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, TFT_WHITE);
   }
 
-  void battle() override {
-    if (!s) return;
-    const BattleState& b = s->battle();
-    int me = s->isHost() ? 0 : 1;
-    Frame d(*this);
-
-    // Turn banner: the single strongest signal for "whose move is it right
-    // now", inverted so it reads at a glance instead of by parsing text.
-    bool myMove = s->state() == LS_MY_TURN;
-    d.g.setTextColor(TFT_BLACK, TFT_WHITE);
-    d->printf("T%-3u%s\n", b.turn, myMove ? "YOUR MOVE" : "OPP'S MOVE...");
-    d.g.setTextColor(TFT_WHITE, TFT_BLACK);
-
+  // Both HP rows plus the "what just happened" delta line — identical
+  // between a real match and practice mode except which slot is "me" and
+  // what that slot is called in the delta line. Shared here so the two
+  // callers can't quietly drift on the flash/hpBar/layout logic.
+  void drawCombatants(Frame& d, const BattleState& b, int me, const char* meLabel) {
     for (int i = 0; i < 2; i++) {
       // Flash (inverted colors) the row whose HP moved since the last draw —
       // hit or heal, no separate visual language for a first cut. Lasts only
-      // until the next poll redraws normally, since battle() fires on every
-      // session poll, not just on turn resolution; a proper timed flash would
-      // need its own clock, not attempted here.
+      // until the next redraw, since battle()/practiceBattle() fire on every
+      // poll or keypress, not just on turn resolution; a proper timed flash
+      // would need its own clock, not attempted here.
       bool changed = lastHp[i] >= 0 && b.p[i].hp != lastHp[i];
       if (changed) {
         lastDelta[i] = b.p[i].hp - lastHp[i];
@@ -247,12 +240,28 @@ struct CardputerUi : SessionUi {
     // the next move.
     if (lastDelta[0] || lastDelta[1]) {
       d->print(' ');
-      if (lastDelta[0]) d->printf("%s%+d  ", me == 0 ? "You" : "Opp", lastDelta[0]);
-      if (lastDelta[1]) d->printf("%s%+d", me == 1 ? "You" : "Opp", lastDelta[1]);
+      if (lastDelta[0]) d->printf("%s%+d  ", me == 0 ? meLabel : "Opp", lastDelta[0]);
+      if (lastDelta[1]) d->printf("%s%+d", me == 1 ? meLabel : "Opp", lastDelta[1]);
       d->println();
     } else {
       d->println();  // keep the layout stable turn 0, before anything's happened
     }
+  }
+
+  void battle() override {
+    if (!s) return;
+    const BattleState& b = s->battle();
+    int me = s->isHost() ? 0 : 1;
+    Frame d(*this);
+
+    // Turn banner: the single strongest signal for "whose move is it right
+    // now", inverted so it reads at a glance instead of by parsing text.
+    bool myMove = s->state() == LS_MY_TURN;
+    d.g.setTextColor(TFT_BLACK, TFT_WHITE);
+    d->printf("T%-3u%s\n", b.turn, myMove ? "YOUR MOVE" : "OPP'S MOVE...");
+    d.g.setTextColor(TFT_WHITE, TFT_BLACK);
+
+    drawCombatants(d, b, me, "You");
 
     // Full words + bracketed keys over the old single dense line: the thing
     // "button smashing" actually meant was not being able to read the menu
@@ -267,12 +276,52 @@ struct CardputerUi : SessionUi {
   }
 
   void log(const char* msg) override { Serial.println(msg); }
+
+  // Local single-device demo: renders straight from a BattleState the caller
+  // owns in main.cpp, bypassing Session/Transport entirely. The human is
+  // always slot 0 — there's no host/joiner concept with one device — and
+  // there's no "waiting on peer" state since the bot resolves instantly.
+  void practiceBattle(const BattleState& b, int winner) {
+    Frame d(*this);
+    d->printf("PRACTICE T%-3u\n", b.turn);
+
+    drawCombatants(d, b, 0, "You");
+
+    if (winner >= 0) {
+      const char* msg = winner == 0 ? "YOU WIN" : winner == 1 ? "YOU LOSE" : "DRAW";
+      d->printf("%s - Q=menu\n", msg);
+    } else {
+      d->println("1)Attack  2)Guard");
+      d->printf("3)Skill   4)Item x%d\n", b.p[0].items);
+      d->println("5)Flee - FORFEITS");
+    }
+  }
 };
 
 static RadioTransport gTransport;
 static ArduinoClock   gClock;
 static CardputerUi    gUi;
 static Session        gSession(gTransport, gClock, gUi);
+
+// ----------------------------------------------------------- practice mode
+// Single-device demo, no radio/Session involved: a bot plays slot 1 against
+// battleInit()/battleResolve() directly, the same pure sim the real match
+// uses. Exists so one person can see a full battle without a second unit.
+static bool        gPracticeOn = false;
+static BattleState gPracticeBattle{};
+// Bot decisions only, never the battle rng — mixing the two would desync a
+// real match if this code path ever ran during one (it can't: gPracticeOn
+// and gSession are mutually exclusive), but keeping the streams separate is
+// the rule this file follows everywhere else, not a special case for this.
+static Rng gPracticeBotRng;
+
+static ActionId practiceBotChoose(const BattleState& b) {
+  const Combatant& me = b.p[1];
+  if (me.hp * 3 < me.hpMax && me.items) return ACT_ITEM;    // heal when low
+  if (me.mp >= skillCostOf(me) && gPracticeBotRng.range(0, 1) == 0)
+    return ACT_SKILL;
+  return ACT_ATTACK;
+}
 
 // --------------------------------------------------------------------- main
 
@@ -332,14 +381,35 @@ void setup() {
 
 void loop() {
   M5Cardputer.update();
-  gSession.poll();
+  if (!gPracticeOn) gSession.poll();
 
   if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
     auto ks = M5Cardputer.Keyboard.keysState();
     for (auto c : ks.word) {
+      if (gPracticeOn) {
+        int winner = battleWinner(gPracticeBattle);
+        if (winner >= 0) {
+          if (c == 'q') { gPracticeOn = false; gUi.status("H=host  J=join"); }
+        } else if (c >= '1' && c <= '5') {
+          ActionId my = (ActionId)(c - '0');
+          battleResolve(gPracticeBattle, my, practiceBotChoose(gPracticeBattle));
+          gUi.practiceBattle(gPracticeBattle, battleWinner(gPracticeBattle));
+        }
+        break;
+      }
+
       LinkState before = gSession.state();
       if (gSession.state() == LS_OVER) {
         if (c == 'q') gSession.rematch(esp_random());
+      } else if (gSession.state() == LS_IDLE && c == 'p') {
+        battleInit(gPracticeBattle, esp_random());
+        gPracticeBotRng.seed(esp_random());
+        gUi.lastHp[0] = gUi.lastHp[1] = -1;
+        gUi.lastDelta[0] = gUi.lastDelta[1] = 0;
+        gPracticeOn = true;
+        gUi.practiceBattle(gPracticeBattle, -1);
+        break;  // entering practice mode is a transition too, even though
+                // gSession's own state doesn't move
       } else {
         gSession.onKey(c);
       }
