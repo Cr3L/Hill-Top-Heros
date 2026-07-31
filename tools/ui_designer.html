@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cardputer UI Designer &mdash; 240&times;135</title>
+<style>
+  :root{
+    --bg:#0e1013; --panel:#16191f; --panel2:#1d2128; --line:#2b313b;
+    --fg:#d7dde6; --dim:#8b95a4; --accent:#7ee787; --accent2:#79c0ff; --warn:#ffa657;
+    --mono:"Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.45 var(--mono);}
+  header{padding:8px 14px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+  header h1{font-size:13px;margin:0;letter-spacing:.5px}
+  header .meta{color:var(--dim)}
+  main{display:flex;align-items:flex-start;justify-content:center;gap:14px;padding:14px;flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;gap:10px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px}
+  .panel > h2{margin:0;padding:6px 10px;font-size:11px;letter-spacing:.8px;text-transform:uppercase;
+    color:var(--dim);border-bottom:1px solid var(--line);background:var(--panel2);border-radius:4px 4px 0 0}
+  .panel > .body{padding:10px;display:flex;flex-direction:column;gap:8px}
+  #stageWrap{max-width:100%;overflow:auto}
+  #stage{display:block;image-rendering:pixelated;background:#000;
+    border:1px solid var(--line);box-shadow:0 0 0 3px #000 inset;cursor:crosshair}
+  label{display:flex;align-items:center;gap:6px;color:var(--dim)}
+  label > span.k{min-width:64px}
+  input[type=text],input[type=number],select,textarea{
+    background:#0b0d10;color:var(--fg);border:1px solid var(--line);border-radius:3px;
+    padding:3px 5px;font:12px var(--mono)}
+  input[type=number]{width:62px}
+  input[type=text]{width:100%}
+  textarea{width:100%;height:220px;white-space:pre;overflow:auto;resize:vertical}
+  button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:3px;
+    padding:4px 9px;font:12px var(--mono);cursor:pointer}
+  button:hover{border-color:var(--accent2);color:var(--accent2)}
+  button:focus{outline:none}
+  button:focus-visible{outline:1px solid var(--accent2);outline-offset:1px}
+  button.on{border-color:var(--accent);color:var(--accent)}
+  .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .idx{color:var(--dim);width:12px}
+  table.regs{border-collapse:collapse;width:100%;table-layout:fixed}
+  table.regs th{color:var(--dim);font-weight:400;text-align:left;font-size:11px;padding:2px 3px;
+    position:sticky;top:0;background:var(--panel2);z-index:1}
+  table.regs td{padding:1px 3px;overflow:hidden}
+  table.regs input[type=number]{width:100%;min-width:0}
+  table.regs input[type=text]{width:100%;min-width:0}
+  table.regs select{width:100%;min-width:0;font-size:10px;padding:2px 1px}
+  table.regs tr.sel td:first-child{color:var(--accent)}
+  .tableScroll{max-height:158px;overflow-y:auto;overflow-x:hidden}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+  .hint{color:var(--dim);font-size:11px}
+  .warn{color:var(--warn)}
+  .ok{color:var(--accent)}
+  .readout{font-size:11px;color:var(--dim);min-height:16px}
+  .tabs{display:flex;gap:4px;padding:6px 10px 0}
+  .tabs button{border-bottom-color:transparent;border-radius:3px 3px 0 0}
+  .palette{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;max-width:180px}
+  .pswatch{position:relative;height:16px;border:1px solid var(--line);border-radius:2px;cursor:pointer}
+  .pswatch.sel{outline:2px solid var(--accent);outline-offset:1px}
+  .pswatch .edit{position:absolute;bottom:-2px;right:-2px;width:9px;height:9px;line-height:9px;text-align:center;
+    font-size:7px;background:rgba(0,0,0,.6);color:#fff;border-radius:2px;cursor:pointer}
+  .pswatch input[type=color]{position:absolute;inset:0;opacity:0;cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+  <h1>CARDPUTER UI DESIGNER</h1>
+  <span class="meta">native 240&times;135 &middot; RGB565 &middot; integer scale only &middot; project-agnostic</span>
+  <span class="meta" id="scaleMeta"></span>
+</header>
+
+<main>
+  <!-- ── left: regions + labels ───────────────────────────────── -->
+  <div class="col" style="flex:0 0 340px;min-width:320px">
+    <div class="panel">
+      <h2>Regions <span class="hint">&mdash; native px</span></h2>
+      <div class="body">
+        <div class="tableScroll">
+        <table class="regs" id="regs">
+          <colgroup>
+            <col style="width:5%"><col style="width:18%"><col style="width:9%"><col style="width:9%">
+            <col style="width:9%"><col style="width:9%"><col style="width:15%"><col style="width:16%"><col style="width:10%">
+          </colgroup>
+          <thead><tr><th></th><th>name</th><th>x</th><th>y</th><th>w</th><th>h</th><th>fill</th><th>type</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        </div>
+        <div class="row">
+          <button id="addReg">+ region</button>
+          <label><span class="k">Snap</span>
+            <select id="snap">
+              <option value="1">off</option>
+              <option value="4">4px</option>
+              <option value="8" selected>8px</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <span class="hint">Align/distribute checked regions:</span>
+          <button id="alLeft">⟸ Left</button>
+          <button id="alRight">Right ⟹</button>
+          <button id="alTop">⟰ Top</button>
+          <button id="alBottom">Bottom ⟱</button>
+          <button id="alCenterX">Center X</button>
+          <button id="alCenterY">Center Y</button>
+          <button id="distH">Distribute H</button>
+          <button id="distV">Distribute V</button>
+        </div>
+        <div class="hint">Drag a region on the canvas (Move regions tool), or edit x/y/w/h here. Arrow keys nudge the selected region 1px (Shift = 8px). Check the box in the first column to include a region in align/distribute.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Text labels <span class="hint">&mdash; 5&times;7 glyph, 6px advance</span></h2>
+      <div class="body">
+        <div class="tableScroll">
+        <table class="regs" id="labels">
+          <colgroup>
+            <col style="width:40%"><col style="width:16%"><col style="width:16%"><col style="width:18%"><col style="width:10%">
+          </colgroup>
+          <thead><tr><th>text</th><th>x</th><th>y</th><th>colour</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        </div>
+        <div class="row"><button id="addLabel">+ label</button></div>
+        <div class="hint" id="labelFit">&nbsp;</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── middle: canvas ───────────────────────────────────────── -->
+  <div class="col" style="flex:0 0 auto">
+    <div class="panel">
+      <h2>Screen</h2>
+      <div class="body">
+        <div class="row">
+          <label><span class="k">Zoom</span>
+            <select id="zoom">
+              <option value="1">1&times; (240&times;135)</option>
+              <option value="2">2&times; (480&times;270)</option>
+              <option value="3" selected>3&times; (720&times;405)</option>
+              <option value="4">4&times; (960&times;540)</option>
+              <option value="5">5&times; (1200&times;675)</option>
+            </select>
+          </label>
+          <button id="tRegion" class="on">Move regions</button>
+          <button id="tLabel">Move labels</button>
+        </div>
+        <div id="stageWrap"><canvas id="stage"></canvas></div>
+        <div class="readout" id="readout">&nbsp;</div>
+        <div class="row">
+          <button id="tBounds" class="on">Region outlines</button>
+          <button id="tLabels" class="on">Labels</button>
+          <button id="tSafe">Safe area</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── right: palette + export ─────────────────────────────── -->
+  <div class="col" style="flex:0 0 340px;min-width:320px">
+    <div class="panel">
+      <h2>Palette <span class="hint">&mdash; click applies, &#9998; edits slot</span></h2>
+      <div class="body">
+        <div id="palette" class="palette"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Export</h2>
+      <div class="tabs">
+        <button data-tab="layout" class="on">layout.h</button>
+        <button data-tab="cpp">C++ struct</button>
+        <button data-tab="json">JSON</button>
+      </div>
+      <div class="body">
+        <label id="hdrNameRow"><span class="k">Header name</span><input type="text" id="hdrName" value="UI_LAYOUT_H"></label>
+        <textarea id="out" spellcheck="false" readonly></textarea>
+        <div class="row">
+          <button id="copy">Copy</button>
+          <button id="dl">Download</button>
+          <button id="png">Save 240&times;135 PNG</button>
+          <button id="save">Save design (.json)</button>
+          <button id="load">Load design</button>
+          <input type="file" id="file" accept=".json" hidden>
+        </div>
+        <div class="hint" id="status">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const NW = 240, NH = 135;                       // native device resolution
+
+/* ── 5x7 bitmap font (column bitmaps, LSB = top row) ─────────────────
+   Same glyph data as LovyanGFX's glcdfont.h (lgfx/Fonts/glcdfont.h), the
+   default font Canvas::drawString() uses: 5px glyph + 1px advance = 6px
+   cell, 7px tall. A browser tool can't link that header, hence the copy.
+   If a project calls setFont() to something else, this preview will not
+   match — it's a layout aid, not a renderer for every font.            */
+const FONT = {
+" ":[0,0,0,0,0],"!":[0,0,0x5F,0,0],'"':[0,7,0,7,0],"#":[0x14,0x7F,0x14,0x7F,0x14],
+"$":[0x24,0x2A,0x7F,0x2A,0x12],"%":[0x23,0x13,0x08,0x64,0x62],"&":[0x36,0x49,0x55,0x22,0x50],
+"'":[0,5,3,0,0],"(":[0,0x1C,0x22,0x41,0],")":[0,0x41,0x22,0x1C,0],"*":[0x14,0x08,0x3E,0x08,0x14],
+"+":[0x08,0x08,0x3E,0x08,0x08],",":[0,0x50,0x30,0,0],"-":[0x08,0x08,0x08,0x08,0x08],
+".":[0,0x60,0x60,0,0],"/":[0x20,0x10,0x08,0x04,0x02],
+"0":[0x3E,0x51,0x49,0x45,0x3E],"1":[0,0x42,0x7F,0x40,0],"2":[0x42,0x61,0x51,0x49,0x46],
+"3":[0x21,0x41,0x45,0x4B,0x31],"4":[0x18,0x14,0x12,0x7F,0x10],"5":[0x27,0x45,0x45,0x45,0x39],
+"6":[0x3C,0x4A,0x49,0x49,0x30],"7":[0x01,0x71,0x09,0x05,0x03],"8":[0x36,0x49,0x49,0x49,0x36],
+"9":[0x06,0x49,0x49,0x29,0x1E],":":[0,0x36,0x36,0,0],";":[0,0x56,0x36,0,0],
+"<":[0x08,0x14,0x22,0x41,0],"=":[0x14,0x14,0x14,0x14,0x14],">":[0,0x41,0x22,0x14,0x08],
+"?":[0x02,0x01,0x51,0x09,0x06],"@":[0x32,0x49,0x79,0x41,0x3E],
+"A":[0x7E,0x11,0x11,0x11,0x7E],"B":[0x7F,0x49,0x49,0x49,0x36],"C":[0x3E,0x41,0x41,0x41,0x22],
+"D":[0x7F,0x41,0x41,0x22,0x1C],"E":[0x7F,0x49,0x49,0x49,0x41],"F":[0x7F,0x09,0x09,0x01,0x01],
+"G":[0x3E,0x41,0x49,0x49,0x7A],"H":[0x7F,0x08,0x08,0x08,0x7F],"I":[0,0x41,0x7F,0x41,0],
+"J":[0x20,0x40,0x41,0x3F,0x01],"K":[0x7F,0x08,0x14,0x22,0x41],"L":[0x7F,0x40,0x40,0x40,0x40],
+"M":[0x7F,0x02,0x04,0x02,0x7F],"N":[0x7F,0x04,0x08,0x10,0x7F],"O":[0x3E,0x41,0x41,0x41,0x3E],
+"P":[0x7F,0x09,0x09,0x09,0x06],"Q":[0x3E,0x41,0x51,0x21,0x5E],"R":[0x7F,0x09,0x19,0x29,0x46],
+"S":[0x46,0x49,0x49,0x49,0x31],"T":[0x01,0x01,0x7F,0x01,0x01],"U":[0x3F,0x40,0x40,0x40,0x3F],
+"V":[0x1F,0x20,0x40,0x20,0x1F],"W":[0x7F,0x20,0x18,0x20,0x7F],"X":[0x63,0x14,0x08,0x14,0x63],
+"Y":[0x03,0x04,0x78,0x04,0x03],"Z":[0x61,0x51,0x49,0x45,0x43],
+"[":[0,0x7F,0x41,0x41,0],"\\":[0x02,0x04,0x08,0x10,0x20],"]":[0,0x41,0x41,0x7F,0],
+"^":[0x04,0x02,0x01,0x02,0x04],"_":[0x40,0x40,0x40,0x40,0x40],"`":[0,1,2,4,0],
+"a":[0x20,0x54,0x54,0x54,0x78],"b":[0x7F,0x48,0x44,0x44,0x38],"c":[0x38,0x44,0x44,0x44,0x20],
+"d":[0x38,0x44,0x44,0x48,0x7F],"e":[0x38,0x54,0x54,0x54,0x18],"f":[0x08,0x7E,0x09,0x01,0x02],
+"g":[0x0C,0x52,0x52,0x52,0x3E],"h":[0x7F,0x08,0x04,0x04,0x78],"i":[0,0x44,0x7D,0x40,0],
+"j":[0x20,0x40,0x44,0x3D,0],"k":[0x7F,0x10,0x28,0x44,0],"l":[0,0x41,0x7F,0x40,0],
+"m":[0x7C,0x04,0x18,0x04,0x78],"n":[0x7C,0x08,0x04,0x04,0x78],"o":[0x38,0x44,0x44,0x44,0x38],
+"p":[0x7C,0x14,0x14,0x14,0x08],"q":[0x08,0x14,0x14,0x18,0x7C],"r":[0x7C,0x08,0x04,0x04,0x08],
+"s":[0x48,0x54,0x54,0x54,0x20],"t":[0x04,0x3F,0x44,0x40,0x20],"u":[0x3C,0x40,0x40,0x20,0x1C],
+"v":[0x1C,0x20,0x40,0x20,0x1C],"w":[0x3C,0x40,0x30,0x40,0x3C],"x":[0x44,0x28,0x10,0x28,0x44],
+"y":[0x0C,0x50,0x50,0x50,0x3C],"z":[0x44,0x64,0x54,0x4C,0x44],
+"{":[0,0x08,0x36,0x41,0],"|":[0,0,0x7F,0,0],"}":[0,0x41,0x36,0x08,0],"~":[0x08,0x04,0x08,0x10,0x08]
+};
+
+/* ── RGB565 helpers ─────────────────────────────────────────────── */
+function to565(hex){ const n = parseInt(String(hex).replace(/^0x/i,""),16); return isNaN(n)?0:(n & 0xFFFF); }
+function hex565(v){ return "0x"+v.toString(16).toUpperCase().padStart(4,"0"); }
+function css565(v){
+  // expand 5/6/5 to 8 bits the way the panel does (replicate high bits)
+  const r5=(v>>11)&0x1F, g6=(v>>5)&0x3F, b5=v&0x1F;
+  const r=(r5<<3)|(r5>>2), g=(g6<<2)|(g6>>4), b=(b5<<3)|(b5>>2);
+  return `rgb(${r},${g},${b})`;
+}
+function from24(css){ // "#rrggbb" -> 565
+  const n=parseInt(css.slice(1),16);
+  return (((n>>19)&0x1F)<<11)|(((n>>10)&0x3F)<<5)|((n>>3)&0x1F);
+}
+function to24(v){
+  const m=css565(v).match(/\d+/g).map(Number);
+  return "#"+m.map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+
+/* ── model ──────────────────────────────────────────────────────── */
+// Deliberately no game/tile/player concept here — this tool designs any
+// Cardputer screen as a set of named rectangular regions plus free text
+// labels, exported as plain #define constants. What those regions MEAN
+// (a title panel, an HP bar, a menu box) is entirely up to the project.
+const M = {
+  regions:[
+    {name:"BG",  x:0, y:0,  w:240, h:135, c:0x0000, fill:true,  mark:0x79C0, type:"rect"},
+    {name:"HUD", x:0, y:127,w:240, h:8,   c:0x000F, fill:true,  mark:0xFFE0, type:"rect"},
+  ],
+  labels:[
+    {text:"HELLO CARDPUTER", x:2, y:127, c:0xFFFF},
+  ],
+  // 16-colour working palette. A starting point, not a spec — each slot is
+  // editable in place, so a project can reshape this into its own palette
+  // and Save design (.json) to keep it. Values are RGB565.
+  palette16:[
+    0x0000, 0xFFFF, 0x8410, 0xC618,   // black, white, mid grey, light grey
+    0xF800, 0x07E0, 0x001F, 0xFFE0,   // red, green, blue, yellow
+    0x07FF, 0xF81F, 0xFD20, 0x8010,   // cyan, magenta, orange, dark red
+    0x0410, 0x2965, 0xFBAE, 0x630C,   // dark green, dark blue, pink, brown
+  ],
+  selReg:1,
+  selLabel:0,
+  show:{bounds:true,labels:true,safe:false},
+  tool:"region", zoom:3
+};
+
+// Purely informational tag on a region — it does not change how the region
+// is drawn or exported beyond a comment. Lets a project's own code (or a
+// human skimming layout.h) know a rect is meant as a button vs. a bar
+// without the tool inventing widget behavior for it.
+const REGION_TYPES = ["rect","button","bar","icon","text-box"];
+
+/* ── DOM ────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const stage = $("stage"), sctx = stage.getContext("2d");
+const buf = document.createElement("canvas"); buf.width=NW; buf.height=NH;
+const bctx = buf.getContext("2d");
+
+/* ── native-resolution painting (this is the device frame) ──────── */
+function px(x,y,w,h,c565){ bctx.fillStyle=css565(c565); bctx.fillRect(x,y,w,h); }
+
+function drawText(str,x,y,c565){
+  // 5x7 glyphs in a 6x8 cell, drawn pixel-exact like the real font
+  bctx.fillStyle=css565(c565);
+  let cx=x;
+  for(const ch of str){
+    const g=FONT[ch]||FONT["?"];
+    for(let col=0;col<5;col++){
+      const bits=g[col];
+      for(let row=0;row<7;row++) if(bits>>row & 1) bctx.fillRect(cx+col,y+row,1,1);
+    }
+    cx+=6;
+  }
+}
+function textWidth(str){ return str.length*6; }
+
+function renderNative(){
+  bctx.fillStyle="#000"; bctx.fillRect(0,0,NW,NH);
+
+  // filled regions painted in list order, so later entries sit on top
+  for(const rg of M.regions) if(rg.fill) px(rg.x,rg.y,rg.w,rg.h,rg.c);
+
+  if(M.show.labels) for(const lb of M.labels) drawText(lb.text,lb.x,lb.y,lb.c);
+}
+
+/* ── scaled presentation + design overlays ──────────────────────── */
+function render(){
+  const S=M.zoom;
+  // Assigning canvas.width/height reallocates and clears its backing store
+  // even when the value is unchanged, so only touch it on an actual zoom
+  // change — render() runs on every mousemove during a drag.
+  if(stage.width!==NW*S || stage.height!==NH*S){
+    stage.width=NW*S; stage.height=NH*S;
+    stage.style.width=(NW*S)+"px"; stage.style.height=(NH*S)+"px";
+    invalidateStageRect();
+  }
+  renderNative();
+  sctx.imageSmoothingEnabled=false;
+  sctx.clearRect(0,0,stage.width,stage.height);
+  sctx.drawImage(buf,0,0,NW,NH,0,0,NW*S,NH*S);
+
+  // overlays are hairlines in screen space so they never lie about device pixels
+  if(M.show.bounds){
+    sctx.font="11px var(--mono),monospace";
+    M.regions.forEach((rg,i)=>{
+      sctx.setLineDash(i===M.selReg&&M.tool==="region"?[]:[4,3]);
+      sctx.lineWidth=i===M.selReg&&M.tool==="region"?2:1;
+      sctx.strokeStyle=css565(rg.mark);
+      sctx.strokeRect(rg.x*S+0.5,rg.y*S+0.5,rg.w*S-1,rg.h*S-1);
+      sctx.setLineDash([]);
+      const lbl=`${rg.name} ${rg.w}x${rg.h}`;
+      const tw=sctx.measureText(lbl).width+6;
+      const ly=rg.y*S<14?rg.y*S+2:rg.y*S-13;
+      sctx.fillStyle="rgba(0,0,0,.72)"; sctx.fillRect(rg.x*S+1,ly,tw,12);
+      sctx.fillStyle=css565(rg.mark); sctx.fillText(lbl,rg.x*S+4,ly+9);
+      // Regions checked for align/distribute get a magenta corner marker so
+      // it's visible on the canvas, not just in the table's checkbox column.
+      if(rg.align){
+        sctx.fillStyle="#ff2fd6";
+        const r=4;
+        sctx.beginPath(); sctx.arc(rg.x*S+r+2,rg.y*S+r+2,r,0,Math.PI*2); sctx.fill();
+      }
+    });
+  }
+  if(M.show.labels && M.tool==="label"){
+    sctx.strokeStyle="rgba(255,255,255,.6)";
+    M.labels.forEach((lb,i)=>{
+      const w=textWidth(lb.text), h=8;
+      sctx.lineWidth=i===M.selLabel?2:1;
+      sctx.strokeRect(lb.x*S+0.5,lb.y*S+0.5,w*S-1,h*S-1);
+    });
+  }
+  if(M.show.safe){                      // 4px bezel-ish inset guide
+    sctx.setLineDash([2,2]); sctx.lineWidth=1; sctx.strokeStyle="rgba(255,166,87,.8)";
+    sctx.strokeRect(4*S+0.5,4*S+0.5,(NW-8)*S-1,(NH-8)*S-1); sctx.setLineDash([]);
+  }
+  $("scaleMeta").textContent=`· stage ${NW*M.zoom}×${NH*M.zoom} (${M.zoom}:1)`;
+  updateFits();
+}
+
+/* ── readouts ───────────────────────────────────────────────────── */
+function updateFits(){
+  const lb=M.labels[M.selLabel];
+  if(!lb){ $("labelFit").innerHTML="&nbsp;"; return; }
+  const tw=textWidth(lb.text), th=8;
+  const clipX=lb.x+tw-NW, clipY=lb.y+th-NH;
+  let msg=`${lb.text.length} chars &rarr; ${tw}&times;${th} px box`;
+  if(clipX>0) msg+=` &middot; <span class="warn">clips ${clipX} px off the right</span>`;
+  if(clipY>0) msg+=` &middot; <span class="warn">bottom row clipped by ${clipY} px</span>`;
+  if(clipX<=0 && clipY<=0) msg+=` &middot; <span class="ok">fits</span>`;
+  $("labelFit").innerHTML=msg;
+}
+
+/* ── mouse ──────────────────────────────────────────────────────── */
+let drag=null;
+
+// getBoundingClientRect() forces a layout; caching it avoids paying that on
+// every mousemove in the whole window. Invalidated on resize/scroll and
+// whenever the stage's own size changes (zoom, i.e. render() re-sizing it).
+let stageRect=null;
+function invalidateStageRect(){ stageRect=null; }
+window.addEventListener("resize",invalidateStageRect);
+window.addEventListener("scroll",invalidateStageRect,true);
+new ResizeObserver(invalidateStageRect).observe(stage);
+
+function nativeAt(e){
+  if(!stageRect) stageRect=stage.getBoundingClientRect();
+  return { x:Math.floor((e.clientX-stageRect.left)/M.zoom), y:Math.floor((e.clientY-stageRect.top)/M.zoom) };
+}
+function snap(v){ const g=+$("snap").value; return g>1 ? Math.round(v/g)*g : v; }
+
+stage.addEventListener("mousedown",e=>{
+  if(e.button!==0) return;
+  const p=nativeAt(e);
+  if(M.tool==="region"){
+    for(let i=M.regions.length-1;i>=0;i--){
+      const rg=M.regions[i];
+      if(p.x>=rg.x&&p.x<rg.x+rg.w&&p.y>=rg.y&&p.y<rg.y+rg.h){
+        M.selReg=i; drag={mode:"region",i,dx:p.x-rg.x,dy:p.y-rg.y}; buildRegs(); render(); return;
+      }
+    }
+  }else{
+    for(let i=M.labels.length-1;i>=0;i--){
+      const lb=M.labels[i];
+      const w=textWidth(lb.text), h=8;
+      if(p.x>=lb.x&&p.x<lb.x+w&&p.y>=lb.y&&p.y<lb.y+h){
+        M.selLabel=i; drag={mode:"label",i,dx:p.x-lb.x,dy:p.y-lb.y}; buildLabels(); render(); return;
+      }
+    }
+  }
+});
+window.addEventListener("mousemove",e=>{
+  const p=nativeAt(e);
+  $("readout").textContent = `x:${p.x} y:${p.y}   (design px = device px)`;
+  if(!drag) return;
+  if(drag.mode==="region"){
+    const rg=M.regions[drag.i];
+    rg.x=Math.max(0,Math.min(NW-rg.w,snap(p.x-drag.dx)));
+    rg.y=Math.max(0,Math.min(NH-rg.h,snap(p.y-drag.dy)));
+    buildRegs(); render();
+  }else if(drag.mode==="label"){
+    const lb=M.labels[drag.i];
+    lb.x=Math.max(0,Math.min(NW-1,snap(p.x-drag.dx)));
+    lb.y=Math.max(0,Math.min(NH-8,snap(p.y-drag.dy)));
+    buildLabels(); render();
+  }
+});
+window.addEventListener("mouseup",()=>{ drag=null; });
+
+/* ── palette UI ─────────────────────────────────────────────────── */
+// Single source of truth for "what's selected right now": the active tool
+// (region/label) picks which list, that list's own index picks the item.
+// Both applyPaletteColor() and the swatch highlight below read this instead
+// of each re-deriving region-vs-label from M.tool independently — a third
+// selectable kind (e.g. icons) only needs a new branch here.
+function getSelected(){
+  return M.tool==="region" ? M.regions[M.selReg] : M.labels[M.selLabel];
+}
+function applyPaletteColor(c565){
+  const sel=getSelected(); if(!sel) return;
+  sel.c=c565;
+  if(M.tool==="region") buildRegs(); else buildLabels();
+  render();
+}
+function buildPalette(){
+  const host=$("palette"); host.innerHTML="";
+  const current = getSelected()?.c;
+  M.palette16.forEach((c,i)=>{
+    const cell=document.createElement("div");
+    cell.className="pswatch"+(c===current?" sel":"");
+    cell.style.background=css565(c);
+    cell.title=hex565(c)+" — click to apply";
+    cell.onclick=e=>{ if(e.target.closest(".edit")) return; applyPaletteColor(c); };
+    const edit=document.createElement("label");
+    edit.className="edit"; edit.textContent="✎"; edit.title="Edit this palette slot";
+    const inp=document.createElement("input");
+    inp.type="color"; inp.value=to24(c);
+    inp.oninput=()=>{ M.palette16[i]=from24(inp.value); buildPalette(); };
+    edit.append(inp);
+    cell.append(edit);
+    host.append(cell);
+  });
+}
+
+// Shared by the regions and labels tables: a small RGB565 <input type=color>
+// wired to read/write one field on obj, redrawing the canvas and the
+// palette's selection highlight on every change.
+function colorInput(obj,key){
+  const inp=document.createElement("input");
+  inp.type="color"; inp.style.width="18px"; inp.style.height="18px"; inp.value=to24(obj[key]);
+  inp.oninput=()=>{ obj[key]=from24(inp.value); render(); refreshOut(); buildPalette(); };
+  return inp;
+}
+
+/* ── regions UI ─────────────────────────────────────────────────── */
+function buildRegs(){
+  const tb=$("regs").querySelector("tbody"); tb.innerHTML="";
+  M.regions.forEach((rg,i)=>{
+    const tr=document.createElement("tr");
+    if(i===M.selReg) tr.className="sel";
+    const alTd=document.createElement("td");
+    const al=document.createElement("input"); al.type="checkbox"; al.checked=!!rg.align; al.title="include in align/distribute";
+    al.onchange=()=>{ rg.align=al.checked; render(); };
+    alTd.append(al); tr.append(alTd);
+    const nameTd=document.createElement("td");
+    const dot=document.createElement("span"); dot.className="dot"; dot.style.background=css565(rg.mark);
+    const nm=document.createElement("input"); nm.type="text"; nm.value=rg.name;
+    nm.oninput=()=>{ rg.name=nm.value.toUpperCase().replace(/[^A-Z0-9_]/g,"_"); render(); refreshOut(); };
+    nameTd.append(dot,nm); tr.append(nameTd);
+    for(const k of ["x","y","w","h"]){
+      const td=document.createElement("td");
+      const inp=document.createElement("input"); inp.type="number"; inp.value=rg[k];
+      inp.oninput=()=>{ rg[k]=Math.max(0,parseInt(inp.value)||0); render(); refreshOut(); };
+      td.append(inp); tr.append(td);
+    }
+    const fTd=document.createElement("td");
+    const col=colorInput(rg,"c");
+    const fl=document.createElement("input"); fl.type="checkbox"; fl.checked=rg.fill; fl.title="paint fill";
+    fl.onchange=()=>{ rg.fill=fl.checked; render(); refreshOut(); };
+    fTd.append(col,fl); tr.append(fTd);
+    const tyTd=document.createElement("td");
+    const ty=document.createElement("select");
+    for(const t of REGION_TYPES){ const o=document.createElement("option"); o.value=t; o.textContent=t; ty.append(o); }
+    ty.value=rg.type||"rect";
+    ty.onchange=()=>{ rg.type=ty.value; refreshOut(); };
+    tyTd.append(ty); tr.append(tyTd);
+    const dTd=document.createElement("td");
+    const del=document.createElement("button"); del.textContent="×"; del.style.padding="0 6px";
+    del.onclick=()=>{
+      M.regions.splice(i,1);
+      // Deleting anything before the selection shifts every later index down
+      // by one; clamping the upper bound alone would leave M.selReg pointing
+      // at a different region than the one that was actually selected.
+      if(i<M.selReg) M.selReg--;
+      M.selReg=Math.min(M.selReg,M.regions.length-1);
+      buildRegs(); render(); refreshOut(); buildPalette();
+    };
+    dTd.append(del); tr.append(dTd);
+    tr.onclick=e=>{ if(e.target.tagName==="TR"||e.target.tagName==="TD"){ M.selReg=i; buildRegs(); render(); buildPalette(); } };
+    tb.append(tr);
+  });
+  refreshOut();
+}
+
+/* ── labels UI ──────────────────────────────────────────────────── */
+function buildLabels(){
+  const tb=$("labels").querySelector("tbody"); tb.innerHTML="";
+  M.labels.forEach((lb,i)=>{
+    const tr=document.createElement("tr");
+    if(i===M.selLabel) tr.className="sel";
+    const tTd=document.createElement("td");
+    const tx=document.createElement("input"); tx.type="text"; tx.value=lb.text;
+    tx.oninput=()=>{ lb.text=tx.value; render(); refreshOut(); };
+    tTd.append(tx); tr.append(tTd);
+    for(const k of ["x","y"]){
+      const td=document.createElement("td");
+      const inp=document.createElement("input"); inp.type="number"; inp.value=lb[k];
+      inp.oninput=()=>{ lb[k]=Math.max(0,parseInt(inp.value)||0); render(); refreshOut(); };
+      td.append(inp); tr.append(td);
+    }
+    const cTd=document.createElement("td");
+    const col=colorInput(lb,"c");
+    cTd.append(col); tr.append(cTd);
+    const dTd=document.createElement("td");
+    const del=document.createElement("button"); del.textContent="×"; del.style.padding="0 6px";
+    del.onclick=()=>{
+      M.labels.splice(i,1);
+      if(i<M.selLabel) M.selLabel--;
+      M.selLabel=Math.min(M.selLabel,M.labels.length-1);
+      buildLabels(); render(); refreshOut(); buildPalette();
+    };
+    dTd.append(del); tr.append(dTd);
+    tr.onclick=e=>{ if(e.target.tagName==="TR"||e.target.tagName==="TD"){ M.selLabel=i; buildLabels(); render(); buildPalette(); } };
+    tb.append(tr);
+  });
+  refreshOut();
+}
+
+/* ── align / distribute ────────────────────────────────────────── */
+// Operates on regions with rg.align checked (the checkbox column), not the
+// single drag-selection M.selReg — a region can be part of an align group
+// without being the one you'd currently drag.
+function alignGroup(){ return M.regions.filter(rg=>rg.align); }
+function withAlignGroup(fn){
+  const g=alignGroup();
+  if(g.length<2){ flash("Check 2+ regions in the align column first."); return; }
+  fn(g); buildRegs(); render(); refreshOut();
+}
+$("alLeft").onclick   =()=>withAlignGroup(g=>{ const v=Math.min(...g.map(r=>r.x)); g.forEach(r=>r.x=v); });
+$("alRight").onclick  =()=>withAlignGroup(g=>{ const v=Math.max(...g.map(r=>r.x+r.w)); g.forEach(r=>r.x=v-r.w); });
+$("alTop").onclick    =()=>withAlignGroup(g=>{ const v=Math.min(...g.map(r=>r.y)); g.forEach(r=>r.y=v); });
+$("alBottom").onclick =()=>withAlignGroup(g=>{ const v=Math.max(...g.map(r=>r.y+r.h)); g.forEach(r=>r.y=v-r.h); });
+$("alCenterX").onclick=()=>withAlignGroup(g=>{
+  const lo=Math.min(...g.map(r=>r.x)), hi=Math.max(...g.map(r=>r.x+r.w)), mid=(lo+hi)/2;
+  g.forEach(r=>r.x=Math.round(mid-r.w/2));
+});
+$("alCenterY").onclick=()=>withAlignGroup(g=>{
+  const lo=Math.min(...g.map(r=>r.y)), hi=Math.max(...g.map(r=>r.y+r.h)), mid=(lo+hi)/2;
+  g.forEach(r=>r.y=Math.round(mid-r.h/2));
+});
+// Distribute: keep the first and last (by position) fixed, space the rest so
+// gaps between edges are equal — the usual "distribute spacing" behaviour.
+$("distH").onclick=()=>withAlignGroup(g=>{
+  const s=[...g].sort((a,b)=>a.x-b.x);
+  const totalW=s.reduce((n,r)=>n+r.w,0);
+  const span=(s[s.length-1].x+s[s.length-1].w)-s[0].x;
+  const gap=(span-totalW)/(s.length-1);
+  let x=s[0].x;
+  for(const r of s){ r.x=Math.round(x); x+=r.w+gap; }
+});
+$("distV").onclick=()=>withAlignGroup(g=>{
+  const s=[...g].sort((a,b)=>a.y-b.y);
+  const totalH=s.reduce((n,r)=>n+r.h,0);
+  const span=(s[s.length-1].y+s[s.length-1].h)-s[0].y;
+  const gap=(span-totalH)/(s.length-1);
+  let y=s[0].y;
+  for(const r of s){ r.y=Math.round(y); y+=r.h+gap; }
+});
+
+/* ── code generation ────────────────────────────────────────────── */
+function genLayout(){
+  const guard=($("hdrName").value||"UI_LAYOUT_H").toUpperCase().replace(/[^A-Z0-9_]/g,"_");
+  const regionLines=M.regions.map(rg=>{
+    const n=rg.name;
+    return `// ${n}: ${rg.w}x${rg.h} px at (${rg.x},${rg.y}) — type: ${rg.type||"rect"}${rg.fill?"":"  (outline only, not filled)"}\n`
+      + `#define ${n}_X ${rg.x}\n#define ${n}_Y ${rg.y}\n`
+      + `#define ${n}_W ${rg.w}\n#define ${n}_H ${rg.h}\n`
+      + `#define ${n}_BG ${hex565(rg.c)}\n`;
+  }).join("\n");
+  const paletteLines=M.palette16.map((c,i)=>`#define PALETTE_${i} ${hex565(c)}`).join("\n");
+  const labelLines=M.labels.map((lb,i)=>{
+    const tw=textWidth(lb.text), clip=lb.x+tw>NW || lb.y+8>NH;
+    return `// "${lb.text.replace(/"/g,'\\"')}" — ${lb.text.length} chars, ${tw}x8 px`
+      + (clip?" — CLIPS, reposition or shorten":"") + `\n`
+      + `#define LABEL_${i}_X ${lb.x}\n#define LABEL_${i}_Y ${lb.y}\n#define LABEL_${i}_COL ${hex565(lb.c)}\n`;
+  }).join("\n");
+  return `#ifndef ${guard}
+#define ${guard}
+
+// Generated by tools/ui_designer.html — all values are native device pixels
+// (240x135, RGB565). This header only carries layout constants: no game
+// logic, no draw calls. Wire it into your own render code, e.g.
+//   canvas.fillRect(HUD_X, HUD_Y, HUD_W, HUD_H, HUD_BG);
+//   canvas.drawString("...", LABEL_0_X, LABEL_0_Y);
+
+#define SCREEN_WIDTH   ${NW}
+#define SCREEN_HEIGHT  ${NH}
+
+// ── Regions ──────────────────────────────────────────────────────
+${regionLines}
+// ── Palette (16-colour working set, RGB565) ────────────────────────
+${paletteLines}
+
+// ── Text labels ──────────────────────────────────────────────────
+// 6px glyph advance (5px glyph + 1px), 8px line height, matches the
+// LovyanGFX/M5GFX default font at text size 1.
+#define LABEL_GLYPH_W 6
+${labelLines}
+#endif // ${guard}
+`;
+}
+
+// Plain array-of-rects export — no typed Button/Bar/Icon structs. `type` and
+// `fill` ride along as fields on the same Rect so the array stays one flat
+// list; a project's own code decides what a given type does with a rect.
+function genCpp(){
+  const guard=($("hdrName").value||"UI_LAYOUT_H").toUpperCase().replace(/[^A-Z0-9_]/g,"_")+"_CPP";
+  const regionLines=M.regions.map(rg=>
+    `  {"${rg.name}", ${rg.x}, ${rg.y}, ${rg.w}, ${rg.h}, ${hex565(rg.c)}, ${rg.fill?"true":"false"}, "${rg.type||"rect"}"},`
+  ).join("\n");
+  const paletteLines=M.palette16.map(c=>`  ${hex565(c)},`).join("\n");
+  const labelLines=M.labels.map(lb=>
+    `  {"${lb.text.replace(/"/g,'\\"')}", ${lb.x}, ${lb.y}, ${hex565(lb.c)}},`
+  ).join("\n");
+  return `#ifndef ${guard}
+#define ${guard}
+
+// Generated by tools/ui_designer.html — native device pixels (240x135, RGB565).
+// Plain data, no draw calls: wire these into your own render code.
+
+struct UIRect { const char* name; int x, y, w, h; uint16_t color; bool fill; const char* type; };
+struct UILabel { const char* text; int x, y; uint16_t color; };
+
+constexpr UIRect UI_REGIONS[] = {
+${regionLines}
+};
+
+constexpr uint16_t UI_PALETTE[16] = {
+${paletteLines}
+};
+
+constexpr UILabel UI_LABELS[] = {
+${labelLines}
+};
+
+#endif // ${guard}
+`;
+}
+
+function genJson(){ return JSON.stringify(M,null,2); }
+
+let tab="layout";
+const GEN={layout:genLayout, cpp:genCpp, json:genJson};
+function refreshOut(){
+  $("out").value = GEN[tab]();
+}
+document.querySelectorAll(".tabs button").forEach(b=>{
+  b.onclick=()=>{ tab=b.dataset.tab;
+    document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
+    $("hdrNameRow").style.display = tab==="json" ? "none" : "flex";
+    refreshOut(); };
+});
+$("hdrName").oninput=refreshOut;
+
+/* ── controls wiring ────────────────────────────────────────────── */
+$("zoom").onchange=e=>{ M.zoom=+e.target.value; render(); };
+
+$("tRegion").onclick=()=>{ M.tool="region"; $("tRegion").classList.add("on"); $("tLabel").classList.remove("on");
+  stage.style.cursor="move"; render(); buildPalette(); };
+$("tLabel").onclick=()=>{ M.tool="label"; $("tLabel").classList.add("on"); $("tRegion").classList.remove("on");
+  stage.style.cursor="move"; render(); buildPalette(); };
+for(const [btn,key] of [["tBounds","bounds"],["tLabels","labels"],["tSafe","safe"]]){
+  $(btn).onclick=()=>{ M.show[key]=!M.show[key]; $(btn).classList.toggle("on",M.show[key]); render(); };
+}
+$("addReg").onclick=()=>{
+  M.regions.push({name:"PANEL"+M.regions.length,x:160,y:0,w:80,h:120,c:0x2104,fill:true,mark:0xFD20,type:"rect"});
+  M.selReg=M.regions.length-1; buildRegs(); render(); buildPalette();
+};
+$("addLabel").onclick=()=>{
+  M.labels.push({text:"TEXT",x:8,y:8,c:0xFFFF});
+  M.selLabel=M.labels.length-1; buildLabels(); render(); buildPalette();
+};
+
+/* ── export / persistence ───────────────────────────────────────── */
+function flash(msg){ $("status").textContent=msg; setTimeout(()=>{ $("status").innerHTML="&nbsp;"; },2200); }
+$("copy").onclick=async()=>{
+  try{ await navigator.clipboard.writeText($("out").value); flash("Copied to clipboard."); }
+  catch{ $("out").removeAttribute("readonly"); $("out").select(); flash("Select-all done — press Ctrl+C."); }
+};
+function download(name,text,type="text/plain"){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+$("dl").onclick=()=>{
+  const base=($("hdrName").value||"ui_layout").toLowerCase().replace(/[^a-z0-9_]/g,"_");
+  const ext={layout:".h", cpp:".hpp", json:".json"}[tab];
+  const name=base+ext;
+  download(name,$("out").value); flash("Saved "+name+" to your downloads.");
+};
+$("png").onclick=()=>{
+  renderNative();                                    // native 240x135, no overlays
+  buf.toBlob(b=>{
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(b); a.download="cardputer_ui_240x135.png"; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  });
+  flash("Saved a 1:1 PNG of the frame.");
+};
+$("save").onclick=()=>{ download("cardputer_ui_design.json",JSON.stringify(M,null,2),"application/json");
+  flash("Design saved."); };
+$("load").onclick=()=>$("file").click();
+$("file").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      // Reviver strips a top-level "__proto__" key: JSON.parse would otherwise
+      // hand Object.assign a plain object whose [[Set]] semantics let that key
+      // reassign M's prototype instead of storing a data field.
+      const d=JSON.parse(fr.result,(k,v)=>k==="__proto__"?undefined:v);
+      Object.assign(M,d);
+      for(const rg of M.regions) if(!rg.type) rg.type="rect";
+      M.selReg=Math.min(M.selReg,M.regions.length-1);
+      M.selLabel=Math.min(M.selLabel,M.labels.length-1);
+      $("zoom").value=M.zoom;
+      buildRegs(); buildLabels(); buildPalette(); render(); flash("Design loaded.");
+    }catch(err){ flash("Could not parse that file: "+err.message); }
+  };
+  fr.readAsText(f);
+  e.target.value="";
+};
+
+/* keyboard: arrows nudge the selected region or label */
+window.addEventListener("keydown",e=>{
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  const step=e.shiftKey?8:1;
+  const d={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]}[e.key];
+  if(!d) return;
+  if(M.tool==="region"){
+    const rg=M.regions[M.selReg]; if(!rg) return;
+    e.preventDefault();
+    rg.x=Math.max(0,Math.min(NW-rg.w,rg.x+d[0]));
+    rg.y=Math.max(0,Math.min(NH-rg.h,rg.y+d[1]));
+    buildRegs(); render();
+  }else{
+    const lb=M.labels[M.selLabel]; if(!lb) return;
+    e.preventDefault();
+    lb.x=Math.max(0,Math.min(NW-1,lb.x+d[0]));
+    lb.y=Math.max(0,Math.min(NH-8,lb.y+d[1]));
+    buildLabels(); render();
+  }
+});
+
+buildRegs(); buildLabels(); buildPalette(); render();
+</script>
+</body>
+</html>
