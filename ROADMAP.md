@@ -103,6 +103,15 @@ Safe to build without touching anything the test suite defends.
   `main_menu.json`. Still open: the title's `GRAPHIC` placeholder region —
   no actual art yet, and Settings/About were dropped from the menu draft
   since nothing in the session FSM backs them.
+- **A standard 16-color palette.** Everything `main.cpp` draws today is
+  monochrome — `TFT_BLACK`/`TFT_WHITE` only (confirmed by grep while adding
+  practice mode, not guessed). Not a hardware limit: the panel is full rgb565,
+  and `tools/designs/*.json` drafts already carry a 16-entry `palette16`, but
+  it has never been wired into a `CardputerUi` draw call — same "mockup, not
+  runtime state" gap as the rest of those drafts. Settling on a specific 16
+  colors (HP bar states, class tints, hit/heal feedback) is its own design
+  pass, not a quick wiring change once picked — flagged as open-ended rather
+  than sized.
 - **Animations or feedback on hit/heal/skill.** Currently a battle() redraw is
   the only signal a turn resolved — no flash, no shake, no distinction between
   "you got hit" and "nothing happened this turn" beyond reading the numbers.
