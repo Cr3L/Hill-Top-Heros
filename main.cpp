@@ -214,7 +214,7 @@ struct CardputerUi : SessionUi {
     // next to it -- readable at a glance mid-battle, same reasoning as the
     // hit/heal row-flash above.
     uint16_t fillColor = (hpMax > 0 && hp * 4 <= hpMax) ? TFT_RED : TFT_WHITE;
-    statBar(g, y, 4, hp, hpMax, fillColor);
+    statBar(g, y, 8, hp, hpMax, fillColor);
   }
 
   // Thinner and stacked directly under the HP bar, not given its own text
@@ -231,9 +231,10 @@ struct CardputerUi : SessionUi {
   // callers can't quietly drift on the flash/hpBar/layout logic.
   //
   // Height budget on a 135px panel, text size 2 (16px/line): 16 turn banner +
-  // 2 * (16 name line + 10 bars/gap) + 16 delta line + 3 * 16 footer = 132px.
-  // 3px of slack — mpBar was sized thin deliberately to fit inside that,
-  // not because MP needed a thinner bar on its own merits.
+  // 2 * (16 name line + 11 bars) + 16 delta line + 3 * 16 footer = 134px.
+  // 1px of slack — the HP/MP bars sit flush against each other (8px + 3px,
+  // no gap) with no gap before the next line either; each bar's own border
+  // is the only visual separation, and there is no room left for more.
   void drawCombatants(Frame& d, const BattleState& b, int me, const char* meLabel) {
     for (int i = 0; i < 2; i++) {
       // Flash (inverted colors) the row whose HP moved since the last draw —
@@ -254,8 +255,8 @@ struct CardputerUi : SessionUi {
       lastHp[i] = b.p[i].hp;
       int y = d->getCursorY();
       hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
-      mpBar(d.g, y + 5, b.p[i].mp, b.p[i].mpMax);   // hpBar height + 1px gap
-      d->setCursor(0, y + 10);   // both bars + a gap before next line
+      mpBar(d.g, y + 8, b.p[i].mp, b.p[i].mpMax);   // hpBar height, no gap
+      d->setCursor(0, y + 11);   // both bars, no gap before next line either
     }
 
     // What just happened, held over from the last resolved turn rather than
