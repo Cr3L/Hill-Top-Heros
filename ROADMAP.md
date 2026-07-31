@@ -27,6 +27,31 @@ lockstep-determinism guarantee the suite already defends.
   `seedCommit()` values from the old layout, whether old commits become
   unparseable across the bump. Scope it as its own `PROTO_VERSION` task before
   touching it, not as a line item alongside equipment/leveling.
+- **Player-chosen class, among the existing 4.** Distinct from the bullet
+  above — this doesn't touch the seed layout at all. `battleInit()` currently
+  draws class from 2 raw seed bits specifically because it was never meant to
+  be a choice; picking one of the 4 that already exist is a decoupling, not a
+  redesign:
+  - Class has no fairness stake, unlike the RNG seed — there's nothing to gain
+    by lying about which class you want — so it can be exchanged in the clear,
+    same as the joiner's `seedHalf` already is. It rides the existing
+    `PKT_JOIN_REQ`/`PKT_JOIN_ACK` round trip, one new `uint8_t classChoice`
+    each way, and does not interact with `seedCommit()`/`seedCommitMatches()`
+    at all.
+  - `Packet` is 37 bytes today against a hard 40-byte cap
+    (`static_assert`, ~50ms airtime budget at SF7/BW125/CR5) — one byte per
+    direction fits with room to spare.
+  - Still needs a `PROTO_VERSION` bump (4→5): this project's stated policy is
+    that any wire *or sim-rule* change earns one, and swapping seed-derived
+    class for a chosen one is a sim-rule change even though the seed layout
+    itself doesn't move.
+  - `battleInit()` changes to take two explicit `classId` args instead of
+    deriving them from seed bits; drop the `(seed >> (i*2)) & 3` line and its
+    `static_assert(CLASS_COUNT == 4, ...)` tie.
+  - Needs a pre-handshake class-pick UI — `tools/designs/character_select.json`
+    is a drafted mockup for exactly this, landed ahead of the feature per the
+    "mockups aren't wired to runtime state" note in `CLAUDE.md`. Landing the
+    JSON did not land this item.
 - **Status effects** (poison, stun, buffs). Nothing in `BattleState` models a
   multi-turn effect today; `guarding` is the only per-turn flag and it resets
   every turn. A real status system needs a duration field in `Combatant`,
@@ -72,9 +97,12 @@ Safe to build without touching anything the test suite defends.
 - **Visual confirmation of the HP bars and the flee prompt** — both landed
   (`91e3117`, `0657b44`) but never seen live; blocked on a second Cardputer.
   First thing to close once hardware allows.
-- **A title/attract screen.** Right now boot goes straight to the idle
-  `status()` diagnostic. Fine for bring-up, not for handing the device to
-  someone else.
+- ~~A title/attract screen.~~ Landed: idle `status()` now draws a title
+  (name + `Frame`'s corner version stamp) with the Host/Join prompt below it
+  as a real menu section, per `tools/designs/title_screen.json` and
+  `main_menu.json`. Still open: the title's `GRAPHIC` placeholder region —
+  no actual art yet, and Settings/About were dropped from the menu draft
+  since nothing in the session FSM backs them.
 - **Animations or feedback on hit/heal/skill.** Currently a battle() redraw is
   the only signal a turn resolved — no flash, no shake, no distinction between
   "you got hit" and "nothing happened this turn" beyond reading the numbers.
