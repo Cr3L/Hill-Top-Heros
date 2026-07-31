@@ -163,19 +163,24 @@ struct CardputerUi : SessionUi {
 
   void status(const char* line) override {
     Frame d(*this);
-    // Idle only: a name for the game before the H=host/J=join prompt, so
-    // booting doesn't drop straight into what reads like a diagnostic screen.
+    // Idle only: title screen (tools/designs/title_screen.json), so booting
+    // doesn't drop straight into what reads like a diagnostic screen.
     if (s && s->state() == LS_IDLE) {
-      d->println("HILL-TOP HEROS");
       // A rematch rerolls classes, so the previous match's HP is meaningless
       // here — reset so the new match's first draw doesn't flash on a value
       // that was never actually a change.
       lastHp[0] = lastHp[1] = -1;
       lastDelta[0] = lastDelta[1] = 0;
+
+      d.g.setTextDatum(textdatum_t::top_center);
+      d.g.drawString("HILL-TOP HEROS", kPanelW / 2, 8);
+      d.g.drawString("A LORA DUEL", kPanelW / 2, 32);
+      d.g.drawString(line, kPanelW / 2, 64);
+      if (note) d.g.drawString(note, kPanelW / 2, 88);
+      d.g.setTextDatum(textdatum_t::top_left);
+      return;
     }
     d->println(line);
-    // Idle only. It is a boot diagnostic, not something to carry into a match.
-    if (note && s && s->state() == LS_IDLE) d->println(note);
   }
 
   // The panel's usable width after rotation — see "Display" in README.md.
