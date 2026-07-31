@@ -203,8 +203,12 @@ struct CardputerUi : SessionUi {
   static void hpBar(LovyanGFX& g, int y, int hp, int hpMax) {
     const int h = 4;
     int fill = hpMax > 0 ? (kPanelW * hp) / hpMax : 0;
+    // Below ~25% the bar itself carries the warning, not just the digits
+    // next to it -- readable at a glance mid-battle, same reasoning as the
+    // hit/heal row-flash above.
+    uint16_t fillColor = (hpMax > 0 && hp * 4 <= hpMax) ? TFT_RED : TFT_WHITE;
     g.drawRect(0, y, kPanelW, h, TFT_WHITE);
-    if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, TFT_WHITE);
+    if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, fillColor);
   }
 
   // Both HP rows plus the "what just happened" delta line — identical
