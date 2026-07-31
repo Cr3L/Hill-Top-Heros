@@ -137,6 +137,36 @@ which would disable the rule silently and for good. The `check-stub` target
 exists to stop that, and it is why the stub is allowed to contain nothing but
 comments, `#pragma once`, and two size includes.
 
+## UI design workflow
+
+`tools/ui_designer.html` (see [`ROADMAP.md`](ROADMAP.md) group 3 — presentation,
+no protocol risk) is a standalone, project-agnostic layout tool for the
+240×135 panel — open it directly in a browser, no build step. `tools/designs/`
+holds the design drafts as `.json`, one file per screen, in the tool's own
+save format so they round-trip through **Load design** / **Save design**.
+
+The back-and-forth that works:
+
+1. I draft a screen's layout as a `.json` in `tools/designs/`, by hand, in the
+   tool's schema (`regions[]`, `labels[]`, `palette16[]`) — coordinates reasoned
+   from the actual panel geometry and text metrics, not guessed.
+2. You load it in the browser, drag/resize/add regions, and either save the
+   edited `.json` back over the draft or export `layout.h` / the C++ struct
+   tab directly.
+3. I fold the result into the relevant `CardputerUi` method.
+
+Two things not to forget when reading or writing these drafts:
+
+- **Labels preview at the tool's fixed text-size-1 font (6×8px cells)**, but
+  most of this project's screens render at size 2 (12×16px) — see
+  `kPanelW`/`hpBar` and the `Frame` dtor in `main.cpp` for the real metrics.
+  A label placed in a draft is a position marker, not a true size preview;
+  trust the **Region** boxes (plain pixel rectangles, size-agnostic) for
+  spacing decisions instead.
+- These drafts are mockups, not wired to any runtime state — a "character
+  select" or "main menu" draft can exist before the screen it depicts is
+  implemented at all. Landing the JSON is not landing the feature.
+
 ## Testing
 
 ```

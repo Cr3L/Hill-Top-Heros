@@ -1,0 +1,29 @@
+{
+  "regions": [
+    { "name": "HEADER", "x": 0,  "y": 0,   "w": 240, "h": 16, "c": 65535, "fill": true,  "mark": 31165, "type": "text-box" },
+    { "name": "ITEM1",  "x": 12, "y": 24,  "w": 216, "h": 16, "c": 0,     "fill": false, "mark": 65504, "type": "text-box" },
+    { "name": "ITEM2",  "x": 12, "y": 44,  "w": 216, "h": 16, "c": 0,     "fill": false, "mark": 65504, "type": "text-box" },
+    { "name": "ITEM3",  "x": 12, "y": 64,  "w": 216, "h": 16, "c": 0,     "fill": false, "mark": 65504, "type": "text-box" },
+    { "name": "ITEM4",  "x": 12, "y": 84,  "w": 216, "h": 16, "c": 0,     "fill": false, "mark": 65504, "type": "text-box" },
+    { "name": "FOOTER", "x": 0,  "y": 112, "w": 240, "h": 16, "c": 0,     "fill": false, "mark": 2047,  "type": "text-box" }
+  ],
+  "labels": [
+    { "text": "MAIN MENU",           "x": 2,  "y": 4,  "c": 0 },
+    { "text": "1) HOST MATCH",       "x": 12, "y": 28, "c": 65535 },
+    { "text": "2) JOIN MATCH",       "x": 12, "y": 48, "c": 65535 },
+    { "text": "3) SETTINGS",         "x": 12, "y": 68, "c": 65535 },
+    { "text": "4) ABOUT",            "x": 12, "y": 88, "c": 65535 },
+    { "text": "USE NUMBER KEYS",     "x": 12, "y": 116,"c": 65535 }
+  ],
+  "palette16": [
+    0, 65535, 33808, 50712,
+    63488, 2016, 31, 65504,
+    2047, 63519, 64800, 32784,
+    1040, 10597, 64430, 25100
+  ],
+  "selReg": 0,
+  "selLabel": 0,
+  "show": { "bounds": true, "labels": true, "safe": false },
+  "tool": "region",
+  "zoom": 3
+}

@@ -1,0 +1,25 @@
+{
+  "regions": [
+    { "name": "TITLE",    "x": 36, "y": 8,  "w": 168, "h": 16, "c": 0, "fill": false, "mark": 31165, "type": "text-box" },
+    { "name": "SUBTITLE", "x": 54, "y": 32, "w": 132, "h": 16, "c": 0, "fill": false, "mark": 31165, "type": "text-box" },
+    { "name": "PROMPT",   "x": 12, "y": 64, "w": 216, "h": 16, "c": 0, "fill": false, "mark": 65504, "type": "text-box" },
+    { "name": "STATUS",   "x": 12, "y": 88, "w": 216, "h": 16, "c": 0, "fill": false, "mark": 2047,  "type": "text-box" }
+  ],
+  "labels": [
+    { "text": "HILL-TOP HEROS",   "x": 36, "y": 12, "c": 65535 },
+    { "text": "A LORA DUEL",      "x": 54, "y": 36, "c": 65535 },
+    { "text": "H) HOST  J) JOIN", "x": 12, "y": 68, "c": 65535 },
+    { "text": "...",              "x": 12, "y": 92, "c": 65535 }
+  ],
+  "palette16": [
+    0, 65535, 33808, 50712,
+    63488, 2016, 31, 65504,
+    2047, 63519, 64800, 32784,
+    1040, 10597, 64430, 25100
+  ],
+  "selReg": 0,
+  "selLabel": 0,
+  "show": { "bounds": true, "labels": true, "safe": false },
+  "tool": "region",
+  "zoom": 3
+}

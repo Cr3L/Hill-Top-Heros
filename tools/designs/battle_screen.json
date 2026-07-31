@@ -1,0 +1,33 @@
+{
+  "regions": [
+    { "name": "BANNER", "x": 0,   "y": 0,   "w": 240, "h": 16, "c": 65535, "fill": true,  "mark": 31165, "type": "text-box" },
+    { "name": "ROW0",   "x": 0,   "y": 16,  "w": 240, "h": 16, "c": 0,     "fill": false, "mark": 31165, "type": "text-box" },
+    { "name": "HP0",    "x": 0,   "y": 32,  "w": 240, "h": 4,  "c": 65535, "fill": true,  "mark": 2016,  "type": "bar" },
+    { "name": "ROW1",   "x": 0,   "y": 38,  "w": 240, "h": 16, "c": 0,     "fill": false, "mark": 31165, "type": "text-box" },
+    { "name": "HP1",    "x": 0,   "y": 54,  "w": 240, "h": 4,  "c": 65535, "fill": true,  "mark": 2016,  "type": "bar" },
+    { "name": "DELTA",  "x": 0,   "y": 60,  "w": 240, "h": 16, "c": 0,     "fill": false, "mark": 31165, "type": "text-box" },
+    { "name": "MENU1",  "x": 0,   "y": 76,  "w": 240, "h": 16, "c": 0,     "fill": false, "mark": 65504, "type": "text-box" },
+    { "name": "MENU2",  "x": 0,   "y": 92,  "w": 240, "h": 16, "c": 0,     "fill": false, "mark": 65504, "type": "text-box" },
+    { "name": "MENU3",  "x": 0,   "y": 108, "w": 240, "h": 16, "c": 0,     "fill": false, "mark": 65504, "type": "text-box" }
+  ],
+  "labels": [
+    { "text": "T012 YOUR MOVE",       "x": 2, "y": 4,  "c": 0 },
+    { "text": ">NAME 87/87 M24",      "x": 2, "y": 20, "c": 65535 },
+    { "text": " NAME 87/87 M24",      "x": 2, "y": 42, "c": 65535 },
+    { "text": "You+12 Opp-8",         "x": 2, "y": 64, "c": 65535 },
+    { "text": "1)ATK 2)GUARD",        "x": 2, "y": 80, "c": 65535 },
+    { "text": "3)SKILL 4)ITEM x2",    "x": 2, "y": 96, "c": 65535 },
+    { "text": "5)FLEE-FORFEITS",      "x": 2, "y": 112,"c": 65535 }
+  ],
+  "palette16": [
+    0, 65535, 33808, 50712,
+    63488, 2016, 31, 65504,
+    2047, 63519, 64800, 32784,
+    1040, 10597, 64430, 25100
+  ],
+  "selReg": 0,
+  "selLabel": 0,
+  "show": { "bounds": true, "labels": true, "safe": false },
+  "tool": "region",
+  "zoom": 3
+}
