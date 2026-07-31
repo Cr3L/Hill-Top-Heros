@@ -200,21 +200,40 @@ struct CardputerUi : SessionUi {
   // the exact number still drives decisions (a skill's mp cost, whether a hit
   // is lethal) — the bar is only there to make that number readable at a
   // glance instead of read digit by digit.
+  // Shared geometry for both bars below: a 1px white border, filled
+  // interior inset 1px on every side so the fill never touches the border.
+  // Height and fill color are the only things HP and MP disagree on.
+  static void statBar(LovyanGFX& g, int y, int h, int val, int valMax, uint16_t fillColor) {
+    int fill = valMax > 0 ? (kPanelW * val) / valMax : 0;
+    g.drawRect(0, y, kPanelW, h, TFT_WHITE);
+    if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, fillColor);
+  }
+
   static void hpBar(LovyanGFX& g, int y, int hp, int hpMax) {
-    const int h = 4;
-    int fill = hpMax > 0 ? (kPanelW * hp) / hpMax : 0;
     // Below ~25% the bar itself carries the warning, not just the digits
     // next to it -- readable at a glance mid-battle, same reasoning as the
     // hit/heal row-flash above.
     uint16_t fillColor = (hpMax > 0 && hp * 4 <= hpMax) ? TFT_RED : TFT_WHITE;
-    g.drawRect(0, y, kPanelW, h, TFT_WHITE);
-    if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, fillColor);
+    statBar(g, y, 4, hp, hpMax, fillColor);
+  }
+
+  // Thinner and stacked directly under the HP bar, not given its own text
+  // line: the panel has no vertical room to spare (see the height budget
+  // note in drawCombatants), and MP swings less dramatically turn to turn
+  // than HP does, so it doesn't need the HP bar's full weight.
+  static void mpBar(LovyanGFX& g, int y, int mp, int mpMax) {
+    statBar(g, y, 3, mp, mpMax, TFT_BLUE);
   }
 
   // Both HP rows plus the "what just happened" delta line — identical
   // between a real match and practice mode except which slot is "me" and
   // what that slot is called in the delta line. Shared here so the two
   // callers can't quietly drift on the flash/hpBar/layout logic.
+  //
+  // Height budget on a 135px panel, text size 2 (16px/line): 16 turn banner +
+  // 2 * (16 name line + 10 bars/gap) + 16 delta line + 3 * 16 footer = 132px.
+  // 3px of slack — mpBar was sized thin deliberately to fit inside that,
+  // not because MP needed a thinner bar on its own merits.
   void drawCombatants(Frame& d, const BattleState& b, int me, const char* meLabel) {
     for (int i = 0; i < 2; i++) {
       // Flash (inverted colors) the row whose HP moved since the last draw —
@@ -235,7 +254,8 @@ struct CardputerUi : SessionUi {
       lastHp[i] = b.p[i].hp;
       int y = d->getCursorY();
       hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
-      d->setCursor(0, y + 6);   // bar height + a gap before next line
+      mpBar(d.g, y + 5, b.p[i].mp, b.p[i].mpMax);   // hpBar height + 1px gap
+      d->setCursor(0, y + 10);   // both bars + a gap before next line
     }
 
     // What just happened, held over from the last resolved turn rather than
