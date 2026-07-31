@@ -163,8 +163,12 @@ struct CardputerUi : SessionUi {
 
   void status(const char* line) override {
     Frame d(*this);
-    // Idle only: title screen (tools/designs/title_screen.json), so booting
-    // doesn't drop straight into what reads like a diagnostic screen.
+    // Idle only: title (tools/designs/title_screen.json) over the menu
+    // (tools/designs/main_menu.json), so booting doesn't drop straight into
+    // what reads like a diagnostic screen. The two mockups are separate
+    // drafts but there is only one LS_IDLE state to draw them from, so both
+    // land in this one call — title on top, the (real, Host/Join-only) menu
+    // below it.
     if (s && s->state() == LS_IDLE) {
       // A rematch rerolls classes, so the previous match's HP is meaningless
       // here — reset so the new match's first draw doesn't flash on a value
@@ -173,11 +177,14 @@ struct CardputerUi : SessionUi {
       lastDelta[0] = lastDelta[1] = 0;
 
       d.g.setTextDatum(textdatum_t::top_center);
-      d.g.drawString("HILL-TOP HEROS", kPanelW / 2, 8);
-      d.g.drawString("A LORA DUEL", kPanelW / 2, 32);
-      d.g.drawString(line, kPanelW / 2, 64);
-      if (note) d.g.drawString(note, kPanelW / 2, 88);
+      d.g.drawString("HILL-TOP HEROS", kPanelW / 2, 40);
       d.g.setTextDatum(textdatum_t::top_left);
+      d->setCursor(12, 76);
+      d->println(line);
+      if (note) {
+        d->setCursor(12, 112);
+        d->println(note);
+      }
       return;
     }
     d->println(line);
