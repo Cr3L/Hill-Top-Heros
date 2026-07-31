@@ -151,7 +151,7 @@ struct CardputerUi : SessionUi {
       snprintf(v, sizeof(v), "v%u", PROTO_VERSION);
       g.drawString(v, g.width(), g.height());
       g.setTextDatum(textdatum_t::top_left);
-      g.setTextSize(2);
+      g.setTextSize(ui.kBodyTextSize);
       if (ui.buffered) ui.canvas.pushSprite(0, 0);
     }
     // A copy would push the same frame twice. Nothing does today; this is here
@@ -192,14 +192,22 @@ struct CardputerUi : SessionUi {
   }
 
   // The panel's usable width after rotation — see "Display" in README.md.
-  // Also the fact behind "20 chars" below: 240px / 12px per glyph at text
-  // size 2. Named once so hpBar and that line can't quietly drift apart.
+  // Also the fact behind "26 chars" below: 240px / 9px per glyph at
+  // kBodyTextSize. Named once so hpBar and that line can't quietly drift.
   static constexpr int kPanelW = 240;
 
-  // HP as a filled rect below each combatant's line. Text stays alongside it —
-  // the exact number still drives decisions (a skill's mp cost, whether a hit
-  // is lethal) — the bar is only there to make that number readable at a
-  // glance instead of read digit by digit.
+  // Squeezed down from size 2 (12x16px glyphs) to make room for the HP/MP
+  // bars without losing the footer menu off the bottom of a 135px panel.
+  // Applies everywhere text is drawn, not just the battle screen, so the
+  // whole UI stays one consistent scale.
+  static constexpr float kBodyTextSize = 1.5f;
+  // Bar heights, tall enough to hold a centered size-1 (8px) label with a
+  // little padding — HP gets more breathing room since its number matters
+  // more moment to moment; MP is tight on purpose (see the height budget
+  // note below).
+  static constexpr int kHpBarH = 14;
+  static constexpr int kMpBarH = 10;
+
   // Shared geometry for both bars below: a 1px white border, filled
   // interior inset 1px on every side so the fill never touches the border.
   // Height and fill color are the only things HP and MP disagree on.
@@ -209,20 +217,44 @@ struct CardputerUi : SessionUi {
     if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, fillColor);
   }
 
+  // The hp/mp numbers live inside the bar itself now rather than on the
+  // name line above it, so this always draws in white: full-strength fill
+  // colors (green, red, blue) are all chosen to keep white legible against
+  // them, and white also reads fine against the plain black background
+  // behind the unfilled part of the bar. Transparent (single-arg
+  // setTextColor) so the fill/background shows through around the glyphs
+  // instead of an opaque box stamping over the bar.
+  static void barLabel(LovyanGFX& g, int y, int h, const char* text) {
+    g.setTextSize(1);
+    g.setTextColor(TFT_WHITE);
+    g.setTextDatum(textdatum_t::middle_center);
+    g.drawString(text, kPanelW / 2, y + h / 2);
+    g.setTextDatum(textdatum_t::top_left);
+    g.setTextSize(kBodyTextSize);
+  }
+
   static void hpBar(LovyanGFX& g, int y, int hp, int hpMax) {
-    // Below ~25% the bar itself carries the warning, not just the digits
-    // next to it -- readable at a glance mid-battle, same reasoning as the
-    // hit/heal row-flash above.
-    uint16_t fillColor = (hpMax > 0 && hp * 4 <= hpMax) ? TFT_RED : TFT_WHITE;
-    statBar(g, y, 8, hp, hpMax, fillColor);
+    // Below ~25% the bar itself carries the warning, not just the number
+    // inside it -- readable at a glance mid-battle, same reasoning as the
+    // hit/heal row-flash above. Green rather than white at full health so
+    // the embedded label has a consistent light-on-dark-or-mid-tone
+    // contrast at every fill level, not white-on-white at full HP.
+    uint16_t fillColor = (hpMax > 0 && hp * 4 <= hpMax) ? TFT_RED : TFT_GREEN;
+    statBar(g, y, kHpBarH, hp, hpMax, fillColor);
+    char text[16];
+    snprintf(text, sizeof(text), "%d/%d", hp, hpMax);
+    barLabel(g, y, kHpBarH, text);
   }
 
   // Thinner and stacked directly under the HP bar, not given its own text
   // line: the panel has no vertical room to spare (see the height budget
-  // note in drawCombatants), and MP swings less dramatically turn to turn
-  // than HP does, so it doesn't need the HP bar's full weight.
+  // note below), and MP swings less dramatically turn to turn than HP
+  // does, so it doesn't need the HP bar's full weight.
   static void mpBar(LovyanGFX& g, int y, int mp, int mpMax) {
-    statBar(g, y, 3, mp, mpMax, TFT_BLUE);
+    statBar(g, y, kMpBarH, mp, mpMax, TFT_BLUE);
+    char text[16];
+    snprintf(text, sizeof(text), "M %d/%d", mp, mpMax);
+    barLabel(g, y, kMpBarH, text);
   }
 
   // Both HP rows plus the "what just happened" delta line — identical
@@ -230,11 +262,11 @@ struct CardputerUi : SessionUi {
   // what that slot is called in the delta line. Shared here so the two
   // callers can't quietly drift on the flash/hpBar/layout logic.
   //
-  // Height budget on a 135px panel, text size 2 (16px/line): 16 turn banner +
-  // 2 * (16 name line + 11 bars) + 16 delta line + 3 * 16 footer = 134px.
-  // 1px of slack — the HP/MP bars sit flush against each other (8px + 3px,
-  // no gap) with no gap before the next line either; each bar's own border
-  // is the only visual separation, and there is no room left for more.
+  // Height budget on a 135px panel at kBodyTextSize (12px/line): 12 turn
+  // banner + 2 * (12 name line + 14 hp bar + 10 mp bar) + 12 delta line +
+  // 3 * 12 footer = 132px. 3px of slack. The hp/mp numbers used to be text
+  // on the name line; moving them into the bars is what bought this room
+  // back after the HP bar's height was doubled.
   void drawCombatants(Frame& d, const BattleState& b, int me, const char* meLabel) {
     for (int i = 0; i < 2; i++) {
       // Flash (inverted colors) the row whose HP moved since the last draw —
@@ -249,14 +281,14 @@ struct CardputerUi : SessionUi {
       }
       // '>' marks the player's own row — same info the old code left the
       // player to infer from remembering which class they'd been dealt.
-      d->printf("%c%s %d/%d M%d\n", i == me ? '>' : ' ', b.p[i].name,
-                 b.p[i].hp, b.p[i].hpMax, b.p[i].mp);
+      // HP/MP numbers no longer sit here — see barLabel().
+      d->printf("%c%s\n", i == me ? '>' : ' ', b.p[i].name);
       if (changed) d.g.setTextColor(TFT_WHITE, TFT_BLACK);
       lastHp[i] = b.p[i].hp;
       int y = d->getCursorY();
       hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
-      mpBar(d.g, y + 8, b.p[i].mp, b.p[i].mpMax);   // hpBar height, no gap
-      d->setCursor(0, y + 11);   // both bars, no gap before next line either
+      mpBar(d.g, y + kHpBarH, b.p[i].mp, b.p[i].mpMax);   // flush, no gap
+      d->setCursor(0, y + kHpBarH + kMpBarH);   // flush before next line too
     }
 
     // What just happened, held over from the last resolved turn rather than
@@ -362,7 +394,7 @@ void setup() {
   // No setRotation() here: M5GFX autodetects the ADV panel and its rotation
   // itself (see "Display" in README.md). Setting it by hand fights the
   // library rather than configuring it.
-  M5Cardputer.Display.setTextSize(2);
+  M5Cardputer.Display.setTextSize(CardputerUi::kBodyTextSize);
   Serial.begin(115200);
 
   if (!gUi.beginDisplay())
