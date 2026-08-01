@@ -31,6 +31,12 @@ enum PktType : uint8_t {
   PKT_ACTION   = 0x05,  // a turn input
   PKT_ACK      = 0x06,  // generic acknowledgement of a seq
   PKT_BYE      = 0x07,  // clean disconnect / forfeit
+  // "What happened to our match?" / the answer. Sent while lingering after a
+  // retry/watchdog timeout, before giving up for good — lets a peer that just
+  // decided the match learn its verdict got through, or hear the real result
+  // instead of reporting a stale "peer unreachable". See LS_LINGER in
+  // rpg_session.h.
+  PKT_STATUS   = 0x08,
 };
 
 // Reason codes carried in PKT_BYE's `action` byte, so the peer can say why.
@@ -40,6 +46,16 @@ enum ByeReason : uint8_t {
   // both halves of that same turn, so it can resolve locally and reach the same
   // verdict instead of grinding out retries on an action we already consumed.
   BYE_MATCH_OVER
+};
+
+// Carried in PKT_STATUS's `action` byte, the same way ByeReason rides
+// PKT_BYE's. A query asks "what's our match's outcome?"; a reply reports the
+// sender's own view, resolved from the sender's seat.
+enum StatusOutcome : uint8_t {
+  STATUS_QUERY = 0, STATUS_I_WIN, STATUS_I_LOSE, STATUS_DRAW,
+  // Sender hasn't reached a verdict either — its `turn`/`stateHash` fields
+  // are its current position, for the receiver to compare against its own.
+  STATUS_UNKNOWN
 };
 
 struct __attribute__((packed)) Packet {

@@ -9,9 +9,21 @@ const char* linkStateName(LinkState s) {
     case LS_HANDSHAKE: return "HANDSHAKE";
     case LS_MY_TURN:   return "MY_TURN";
     case LS_WAIT_PEER: return "WAIT_PEER";
+    case LS_LINGER:    return "LINGER";
     case LS_OVER:      return "OVER";
   }
   return "?";
+}
+
+// Single source of truth for "what does my own seat's outcome string say",
+// used to build both PKT_STATUS's wire enum and endMatch's message.
+static const char* outcomeMsg(StatusOutcome o) {
+  switch (o) {
+    case STATUS_DRAW:   return "draw";
+    case STATUS_I_WIN:  return "you win";
+    case STATUS_I_LOSE: return "you lose";
+    default:             return "";
+  }
 }
 
 // ------------------------------------------------------------------ lifecycle
@@ -38,6 +50,10 @@ void Session::resetMatchState() {
   turnStartAt_   = 0;
   overMsg_       = "";
   versionMismatchShown_ = false;
+  battleStarted_ = false;
+  lingerReason_  = BYE_NONE;
+  lingerStartAt_ = 0;
+  lingerProbeAt_ = 0;
   memset(&b_, 0, sizeof(b_));
 }
 
@@ -145,6 +161,33 @@ void Session::endMatch(const char* why, ByeReason reason, bool tellPeer) {
   ui_.status(why);
 }
 
+// Like endMatch, but doesn't finalize yet — parks the outcome and keeps
+// answering/asking PKT_STATUS for up to LINGER_MS, so a peer that only
+// missed our BYE (or whose BYE we only missed) can still be reconciled with
+// instead of the two of us disagreeing forever. pumpLinger() is what
+// eventually calls the real endMatch(), either on reconciliation or once the
+// window elapses.
+void Session::enterLinger(const char* why, ByeReason reason, bool tellPeer) {
+  if (state_ == LS_OVER) return;
+  // Once we've recorded a REAL decided verdict (reason == BYE_MATCH_OVER),
+  // a later call must not downgrade it back to a guess — but the reverse
+  // must be allowed: the PKT_BYE self-resolve path calls resolveTurn() (and
+  // so this, with BYE_MATCH_OVER) while already LS_LINGER on a guess like
+  // "peer unreachable", and that real verdict has to win. Without this, the
+  // stale guess would silently finalize instead — the exact split-verdict
+  // case this feature exists to fix.
+  if (state_ == LS_LINGER && lingerReason_ == BYE_MATCH_OVER) return;
+  pendingActive_ = false;
+  state_         = LS_LINGER;
+  overMsg_       = why;
+  lingerReason_  = reason;
+  lingerStartAt_ = clk_.now();
+  lingerProbeAt_ = 0;                  // fire the first probe on the next poll
+  if (tellPeer && peerId_) sendBye(reason);
+  ui_.log(why);
+  ui_.status(why);
+}
+
 // --------------------------------------------------------------------- recv
 
 // Lookup and insert are separate so a packet can be recognised as already
@@ -225,6 +268,7 @@ void Session::handlePacket(const Packet& p) {
         }
         peerSeed_ = p.seedHalf;
         battleInit(b_, mySeed_ ^ peerSeed_);
+        battleStarted_ = true;
         sendReady();
         enterMyTurn();
       } else if (!isHost_ && b_.turn == 0 &&
@@ -240,6 +284,7 @@ void Session::handlePacket(const Packet& p) {
     case PKT_READY:
       if (state_ == LS_HANDSHAKE && isHost_) {
         battleInit(b_, mySeed_ ^ peerSeed_);
+        battleStarted_ = true;
         enterMyTurn();
       }
       break;
@@ -276,26 +321,92 @@ void Session::handlePacket(const Packet& p) {
     }
 
     case PKT_BYE:
-      // We already have a verdict; the peer is just closing down too. It has
-      // been ACKed above, which is all it needs.
-      if (state_ == LS_OVER) break;
+      // Already decided — whether finalized (LS_OVER) or still lingering on
+      // our own real verdict (LS_LINGER with a resolved b_) — the peer's BYE
+      // is just closing down too and tells us nothing new.
+      if (state_ == LS_OVER ||
+          (state_ == LS_LINGER && myOutcome() != STATUS_UNKNOWN))
+        break;
 
-      // The peer finished the final turn. If we are holding both halves of that
-      // same turn we can resolve it ourselves and report the real result — the
+      // The peer finished the final turn. If we are holding both halves of
+      // that same turn — whether still LS_WAIT_PEER or already lingering on
+      // "peer unreachable"/"peer timed out" without having cleared our own
+      // action — we can resolve it ourselves and report the real result: the
       // sim is deterministic, so we necessarily reach the same verdict. The
-      // only thing we were missing was the acknowledgement of our own action,
-      // and the BYE is proof the peer consumed it.
-      if (p.action == BYE_MATCH_OVER && state_ == LS_WAIT_PEER &&
+      // only thing we were missing was the acknowledgement of our own
+      // action, and the BYE is proof the peer consumed it.
+      if (p.action == BYE_MATCH_OVER &&
+          (state_ == LS_WAIT_PEER || state_ == LS_LINGER) &&
           peerActionIn_ && myAction_ != ACT_NONE) {
         pendingActive_ = false;        // it was received; stop retrying
         resolveTurn();
-        if (state_ != LS_OVER)         // somehow not decided on our side
+        if (state_ != LS_OVER && state_ != LS_LINGER)  // somehow not decided
           endMatch("peer left", BYE_NONE, false);
         break;
       }
+
+      // Can't self-resolve, and haven't decided ourselves. If we're merely
+      // lingering on a still-open guess, a bare BYE isn't enough to act on —
+      // it doesn't carry the peer's actual verdict — so don't clobber that
+      // guess with "peer left" here. Let the PKT_STATUS exchange (which does
+      // carry it) or the linger deadline settle it instead.
+      if (state_ == LS_LINGER) break;
+
       endMatch(p.action == BYE_DESYNC ? "peer saw desync" : "peer left",
                BYE_NONE, false);
       break;
+
+    case PKT_STATUS: {
+      // LS_OVER is included so a side that already finalized keeps
+      // answering queries from a peer still reconciling in its own LINGER
+      // window — b_ and myOutcome() are still valid there, only rematch()
+      // clears them, and a stale, unanswered query is exactly the situation
+      // this feature exists to avoid.
+      if (state_ != LS_MY_TURN && state_ != LS_WAIT_PEER &&
+          state_ != LS_LINGER && state_ != LS_OVER)
+        break;
+
+      if (p.action == STATUS_QUERY) {
+        if (!peerId_) break;
+        Packet r{};
+        r.type      = PKT_STATUS;
+        r.dst       = p.src;
+        r.turn      = b_.turn;
+        r.stateHash = battleHash(b_);
+        r.action    = (uint8_t)myOutcome();
+        txPacket(r, false);
+        break;
+      }
+
+      if (state_ != LS_LINGER) break;  // a reply is only actionable while lingering
+
+      if (p.action == STATUS_I_WIN || p.action == STATUS_I_LOSE ||
+          p.action == STATUS_DRAW) {
+        // The peer has a real, decided verdict — adopt it instead of our
+        // stale guess. Mapped from the peer's seat to ours: their win is our
+        // loss.
+        StatusOutcome mine = p.action == STATUS_DRAW  ? STATUS_DRAW
+                            : p.action == STATUS_I_WIN ? STATUS_I_LOSE
+                                                        : STATUS_I_WIN;
+        endMatch(outcomeMsg(mine), BYE_NONE, false);
+        break;
+      }
+
+      // STATUS_UNKNOWN: the peer hasn't reached a verdict either — the rare
+      // both-exhausted-before-resolving case. Deliberately not handled here:
+      // an earlier version resent the action and rejoined the ordinary FSM,
+      // but that resend arms its own fresh retry/watchdog cycle, and this
+      // very packet type keeps lastRxAt_ current — so on a persistently bad
+      // link (corrupted/one-way-blocked action) the two sides can cycle
+      // LS_WAIT_PEER <-> LS_LINGER indefinitely without either timeout ever
+      // firing, a genuine livelock LINGER_MS was supposed to bound, not
+      // create. Left as a no-op: this case falls back to today's behavior
+      // (each side finalizes on its own local guess once LINGER_MS elapses),
+      // which is correct, just not improved. Closing it needs the resend
+      // capped to a single attempt or an independent deadline, tracked as a
+      // follow-up rather than risking it here.
+      break;
+    }
 
     default: break;
   }
@@ -328,9 +439,11 @@ void Session::pumpRetries() {
   if (clk_.now() - pendingSentAt_ < pendingDelay_) return;
   if (pendingTries_ >= MAX_TRIES) {
     pendingActive_ = false;
-    // In LS_OVER this is just the closing BYE going unanswered — the verdict is
-    // already decided and must not be relabelled "peer unreachable".
-    if (state_ != LS_OVER) endMatch("peer unreachable", BYE_TIMEOUT, false);
+    // In LS_OVER or LS_LINGER this is just a closing BYE going unanswered —
+    // the verdict is already decided (or being reconciled) and must not be
+    // relabelled "peer unreachable". enterLinger is itself a no-op in both
+    // of those states, so no need to check here too.
+    enterLinger("peer unreachable", BYE_TIMEOUT, false);
     return;
   }
   // Re-send the same seq so the peer's replay filter recognises it.
@@ -345,7 +458,25 @@ void Session::pumpWatchdog() {
   // a human staring at the menu for 20s is not a dead link.
   if (state_ != LS_HANDSHAKE && state_ != LS_WAIT_PEER) return;
   if (clk_.now() - lastRxAt_ < PEER_TIMEOUT_MS) return;
-  endMatch("peer timed out", BYE_TIMEOUT, true);
+  enterLinger("peer timed out", BYE_TIMEOUT, true);
+}
+
+void Session::pumpLinger() {
+  if (state_ != LS_LINGER) return;
+  if (clk_.now() - lingerStartAt_ >= LINGER_MS) {
+    endMatch(overMsg_, lingerReason_, false);
+    return;
+  }
+  if (!peerId_) return;
+  if (lingerProbeAt_ && clk_.now() - lingerProbeAt_ < LINGER_PROBE_MS) return;
+  lingerProbeAt_ = clk_.now();
+  Packet p{};
+  p.type      = PKT_STATUS;
+  p.dst       = peerId_;
+  p.turn      = b_.turn;
+  p.action    = STATUS_QUERY;
+  p.stateHash = battleHash(b_);
+  txPacket(p, false);
 }
 
 void Session::pumpBeacon() {
@@ -366,18 +497,26 @@ void Session::resolveTurn() {
   peerActionIn_ = false;
   myAction_ = peerAction_ = ACT_NONE;
 
-  int w = battleWinner(b_);
-  if (w == -1) {
+  StatusOutcome outcome = myOutcome();
+  if (outcome == STATUS_UNKNOWN) {
     enterMyTurn();
   } else {
     // Tell the peer. It is holding the same pair of actions and may still be
     // waiting on an acknowledgement we already sent; without this it grinds
     // through its whole retry budget and reports "peer unreachable" instead of
     // the result of a match it actually finished.
-    int me = isHost_ ? 0 : 1;
-    endMatch(w == 2 ? "draw" : (w == me ? "you win" : "you lose"),
-             BYE_MATCH_OVER, true);
+    enterLinger(outcomeMsg(outcome), BYE_MATCH_OVER, true);
   }
+}
+
+// battleStarted_ guards a zeroed BattleState (handshake failed before
+// battleInit ever ran) reading as a false draw — see rpg_session.h.
+StatusOutcome Session::myOutcome() const {
+  if (!battleStarted_) return STATUS_UNKNOWN;
+  int w = battleWinner(b_);
+  if (w == -1) return STATUS_UNKNOWN;
+  int me = isHost_ ? 0 : 1;
+  return w == 2 ? STATUS_DRAW : (w == me ? STATUS_I_WIN : STATUS_I_LOSE);
 }
 
 void Session::pumpResolve() {
@@ -411,6 +550,7 @@ void Session::poll() {
   pumpBeacon();
   pumpResolve();
   pumpMoveTimer();
+  pumpLinger();
 }
 
 // ----------------------------------------------------------------- keyboard

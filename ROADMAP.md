@@ -26,7 +26,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 1 | Player-chosen class (existing 4) | Open | Own `PROTO_VERSION` task; UI mockup drafted, not wired |
 | 1 | Status effects | Open | Not started |
 | 1 | Balance beyond the 4-cycle | Open | Depends on player-chosen class landing first |
-| 2 | Rejoin after "peer unreachable" | Open | **Highest-value item overall** — unblocked now that 2-radio pairing is confirmed |
+| 2 | Rejoin after "peer unreachable" | Done | LS_LINGER + PKT_STATUS landed (sim-verified); both-sides-stuck sub-case deferred (livelock risk); real hardware disconnect test still open |
 | 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
 | 2 | Player identity (name entry) | Open | Small |
 | 2 | Version-mismatch UX | Open | Not started |
@@ -94,17 +94,27 @@ lockstep-determinism guarantee the suite already defends.
 
 The protocol works; the experience around it is minimal.
 
-- **Rejoin after "peer unreachable" — the highest-value item in this group.**
-  Unlike the other three bullets below, this isn't speculative: the loss sweep
-  in `test/test_session.cpp` already measures a ~0.5% split-verdict rate at 20%
-  modelled loss, a quantified problem with real players, not a nice-to-have.
-  The other three (multi-peer, identity, version UX) only start to matter once
-  there's more than one pair of testers. Once hardware is confirmed, put this
-  ahead of group 3.
-  Today "peer unreachable" is terminal — `q` starts a fresh rematch with a new
-  seed, there's no "try to reconnect to the same match." A linger-and-resume
-  path was already flagged in `CLAUDE.md` as the real fix, not a bigger retry
-  budget.
+- ~~**Rejoin after "peer unreachable".**~~ Landed: `LS_LINGER`
+  (`rpg_session.h`/`.cpp`) and a new `PKT_STATUS` packet give both sides a
+  bounded 15s window to reconcile via query/reply before finalizing, instead
+  of finalizing immediately on retry/watchdog exhaustion. No `PROTO_VERSION`
+  bump — `PKT_STATUS` is a new discriminant on the unchanged `Packet` struct,
+  the same way `PKT_BYE` already reuses `action` for `ByeReason`, so it's
+  safe against an unupgraded peer (unrecognized `type` is already a no-op).
+  Measured effect in `test/test_session.cpp`'s loss sweep: the split-verdict
+  rate that used to be ~0.5% at 20% modelled loss is now within the
+  tightened 0.6%-at-any-rate bound, including the 50% bucket. Not
+  eliminated, bounded: a peer that stays unreachable through the whole
+  linger window still reports what it locally knows, same as before linger
+  existed. One case deliberately deferred rather than shipped half-tested:
+  both sides exhausting their retry budget before either resolves a turn
+  (as opposed to the single-lost-BYE case this was built for) — an earlier
+  attempt at auto-resending the action from `LS_LINGER` created a genuine
+  livelock (`PKT_STATUS` traffic kept the watchdog's `lastRxAt_` fresh, so
+  neither timeout could ever fire on a persistently bad link), so that path
+  is left a documented no-op for now. Still needs a real two-unit test of
+  an actual mid-match disconnect — the sim models packet loss, not real
+  SX1262 behavior — see "Still unverified" in `CLAUDE.md`.
 - **More than one peer.** `startHosting()`/`startJoining()` assume exactly two
   radios in range. No discovery UX for "which of three nearby hosts do I
   join," no room codes, nothing yet needs it since two units is the only

@@ -210,7 +210,63 @@ static void testRetryBackoffIsJittered() {
   printf("\n");
 }
 
-// --------------------------------------------------------- protocol tamper
+// --------------------------------------------------------------- linger
+
+// The exact split-verdict scenario the loss sweep measures: the winner's
+// PKT_BYE (and every retry/PKT_STATUS reply that could tell the loser the
+// real result) goes missing for a while, but the link recovers before either
+// side's LINGER_MS window elapses. Both sides used to disagree forever here
+// ("you win"/"you lose" vs "peer unreachable"); now they should reconcile.
+static void testLingerReconcilesSplitVerdict() {
+  printf("linger reconciles what used to be a split verdict\n");
+  Rig r;
+  r.begin(1);
+  bool blocking = false;
+  uint32_t blockUntil = 0;
+  // Black-hole everything from the moment the first BYE goes out — that
+  // covers the winner's BYE retries and both sides' PKT_STATUS traffic — for
+  // long enough that the loser's action-retry budget exhausts (MAX_TRIES *
+  // ~1.1s), but short of LINGER_MS, so the link is back before either side's
+  // linger window runs out.
+  r.ch.filter = [&](Packet& p, int from) {
+    (void)from;
+    if (!blocking && p.type == PKT_BYE) {
+      blocking   = true;
+      blockUntil = r.ch.t + 10000;
+    }
+    return !(blocking && r.ch.t < blockUntil);
+  };
+  r.run(180000);
+  CHECKM(r.bothDone(), "host=%s join=%s", linkStateName(r.host.state()),
+         linkStateName(r.join.state()));
+  CHECK(!sawDesync(r));
+  CHECKM(decided(r.host) && decided(r.join),
+         "host '%s' join '%s' — expected both to reach a real verdict",
+         r.host.overMsg(), r.join.overMsg());
+  CHECKM(outcomesAgree(r.host, r.join), "host '%s' join '%s'",
+         r.host.overMsg(), r.join.overMsg());
+}
+
+// A genuinely dead peer must still finalize on the locally-known outcome —
+// LS_LINGER is a delay, not a new way to hang — within a bounded total time:
+// the existing watchdog/retry path plus LINGER_MS, not a moment longer.
+static void testLingerGenuineUnreachableBounded() {
+  printf("genuinely dead peer still finalizes, within a bounded time\n");
+  Rig r;
+  r.begin(2);
+  bool started = false;
+  r.ch.filter = [&started](Packet& p, int from) {
+    if (started && from == 1) return false;      // joiner vanishes for good
+    if (p.type == PKT_JOIN_REQ) { started = true; return true; }
+    return true;
+  };
+  r.run(Session::PEER_TIMEOUT_MS + Session::LINGER_MS + 20000);
+  CHECKM(r.host.state() == LS_OVER, "host stuck in %s within the time bound",
+         linkStateName(r.host.state()));
+  CHECK(!decided(r.host));           // nobody actually won this
+}
+
+// --------------------------------------------------------------- protocol tamper
 
 static void testCorruptActionByte() {
   printf("out-of-range action byte is rejected, not executed\n");
@@ -283,20 +339,29 @@ static void testTamperedSeedRevealRejected() {
 // The third is best-effort by nature and the limit is real, not a test
 // artefact. The winner resolves the final turn, ACKs, and sends a (retried)
 // BYE; if that ACK and every BYE retransmission are lost while the loser is
-// spending the last of its own retry budget, the loser correctly concludes the
-// link is dead and says so while the winner has a verdict. Closing that gap
-// needs a linger-and-resume layer, not a bigger retry count. Measured at ~0.5%
-// of matches at 20% loss, and it is one of the things the two-radio test should
-// look at, since real capture effect makes long loss runs less likely than this
-// model's independent per-packet drops.
+// spending the last of its own retry budget, the loser used to conclude the
+// link was dead and say so while the winner had a verdict. LS_LINGER
+// (rpg_session.h/.cpp) closes most of that gap: PKT_STATUS lets either side
+// answer "what actually happened?" for LINGER_MS after giving up, before
+// finalizing — see testLingerReconcilesSplitVerdict for the scenario in
+// isolation. It is bounded, not eliminated: a peer that stays unreachable
+// through the whole linger window as well still reports what it locally
+// knows, so a residual split rate is expected here, just much lower than the
+// ~0.5% at 20% loss this used to measure before linger landed. It remains one
+// of the things the two-radio test should look at, since real capture effect
+// makes long loss runs less likely than this model's independent per-packet
+// drops.
 static void testLossSweep() {
   printf("loss sweep\n");
   const uint32_t rates[] = { 0, 5, 20, 50 };
   const uint32_t seeds = 400;
   // A hard "zero splits at 5%" would pass on these 400 seeds and then flake:
   // a 3000-seed run with duplication mixed in produces a handful. Bound the
-  // rate instead, which is the property actually being claimed.
-  const uint32_t maxSplitPermille = 10;    // 1% of matches
+  // rate instead, which is the property actually being claimed. Lowered from
+  // 10 (1%) once LS_LINGER landed — see the comment above. Still not 0: the
+  // 50% bucket is loss well beyond what linger targets (a healthy link that
+  // dropped a few packets), and needs its own headroom.
+  const uint32_t maxSplitPermille = 6;    // 0.6% of matches
 
   for (uint32_t rate : rates) {
     uint32_t completed = 0, abandoned = 0, hung = 0, split = 0;
@@ -422,6 +487,8 @@ int main() {
   testCorruptActionByte();
   testTamperedStateHashAbortsBothSides();
   testTamperedSeedRevealRejected();
+  testLingerReconcilesSplitVerdict();
+  testLingerGenuineUnreachableBounded();
   testLossSweep();
   testSessionReachesTurnCap();
   testMoveTimerAutoAttacks();

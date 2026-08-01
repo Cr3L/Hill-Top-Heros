@@ -9,7 +9,13 @@
 
 enum LinkState : uint8_t {
   LS_IDLE, LS_BEACONING, LS_JOINING, LS_HANDSHAKE, LS_MY_TURN,
-  LS_WAIT_PEER, LS_OVER
+  LS_WAIT_PEER,
+  // Terminal-pending: we have an outcome (a real verdict, or a giving-up
+  // message) but are still willing to reconcile with the peer before
+  // finalizing it. LS_OVER remains the true absorbing state — the only way
+  // out of LS_LINGER is a successful reconciliation or LINGER_MS elapsing.
+  LS_LINGER,
+  LS_OVER
 };
 
 const char* linkStateName(LinkState s);
@@ -59,6 +65,14 @@ class Session {
   // a slow or absent player can't stall the match indefinitely.
   static constexpr uint32_t MOVE_TIMEOUT_MS = 30000;
   static constexpr uint32_t BEACON_MS       = 2000;
+  // How long to keep answering/asking PKT_STATUS before giving up on the
+  // locally-known outcome for good. Deliberately shorter than
+  // PEER_TIMEOUT_MS: by the time LS_LINGER is entered, a full watchdog or
+  // retry budget has already been spent failing to reach the peer, so the
+  // case this recovers — a link that dropped only the last few packets —
+  // resolves in one or two probe round-trips, not tens of seconds.
+  static constexpr uint32_t LINGER_MS       = 15000;
+  static constexpr uint32_t LINGER_PROBE_MS = 2000;
   static constexpr uint8_t  SEEN_SLOTS      = 4;
 
   Session(Transport& t, Clock& c, SessionUi& u) : tx_(t), clk_(c), ui_(u) {}
@@ -95,6 +109,8 @@ class Session {
   void     sendReady();
   void     sendBye(ByeReason r);
   void     endMatch(const char* why, ByeReason reason, bool tellPeer);
+  void     enterLinger(const char* why, ByeReason reason, bool tellPeer);
+  void     pumpLinger();
   bool     seenContains(uint32_t src, uint16_t seq) const;
   void     seenRecord(uint32_t src, uint16_t seq);
   void     handlePacket(const Packet& p);
@@ -104,6 +120,10 @@ class Session {
   void     pumpBeacon();
   void     pumpResolve();
   void     pumpMoveTimer();
+  // My own seat's outcome right now: STATUS_UNKNOWN until battleStarted_ and
+  // the sim has actually decided. Single source of truth for both endMatch's
+  // message and PKT_STATUS's wire reply — see outcomeMsg() in rpg_session.cpp.
+  StatusOutcome myOutcome() const;
   void     resolveTurn();              // both actions in hand; advance the sim
   void     enterMyTurn();              // LS_MY_TURN entry, every path
   void     chooseAction(ActionId a);   // shared by onKey and the move timer
@@ -142,6 +162,14 @@ class Session {
   bool      jitter_ = true;
   const char* overMsg_ = "";
   bool      versionMismatchShown_ = false;  // one status line per pairing attempt
+  // battleInit() has actually run. Guards PKT_STATUS's verdict reply: a
+  // zeroed BattleState (handshake failed before battleInit) reads as a draw
+  // to battleWinner() — both p[].alive are 0 — so without this a stuck
+  // handshake could report a fake "draw" instead of "peer unreachable".
+  bool      battleStarted_ = false;
+  ByeReason lingerReason_  = BYE_NONE;      // reason to finalize with if LINGER_MS elapses
+  uint32_t  lingerStartAt_ = 0;
+  uint32_t  lingerProbeAt_ = 0;             // last PKT_STATUS probe sent, 0 = none yet
 
   BattleState b_{};
 };
