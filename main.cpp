@@ -220,13 +220,20 @@ struct CardputerUi : SessionUi {
   // BUNYAN/DRIFTER/COYOTE/VOODOO palette slots, indexed by classId. Order
   // has to match the ClassId enum in rpg_link.cpp (CLS_BUNYAN=0 ..
   // CLS_VOODOO=3) by position — that enum isn't exposed in rpg_link.h, so
-  // there's no way to reference it here by name.
-  static constexpr uint16_t kClassColor[4] = {
+  // there's no way to reference it here by name. kClassColorCount tracks
+  // classCount()'s value today (4), but the two aren't linked: a 5th class
+  // (ROADMAP.md group 1 — its own PROTO_VERSION task, not started) needs a
+  // 5th entry added here by hand. Bounds-checked against this array's own
+  // size below, not against classCount() directly — that would pass a
+  // classId this array has no color for and read out of bounds.
+  static constexpr uint16_t kClassColor[] = {
     0x8A22,  // Bunyan  -- brown
     0x8800,  // Drifter -- dark red
     0xD5B1,  // Coyote  -- tan
     0x6013,  // Voodoo  -- purple
   };
+  static constexpr uint8_t kClassColorCount =
+      sizeof(kClassColor) / sizeof(kClassColor[0]);
 
   // Shared geometry for both bars below: a 1px white border, filled
   // interior inset 1px on every side so the fill never touches the border.
@@ -306,7 +313,8 @@ struct CardputerUi : SessionUi {
         // color barLabel() last left ambient (it used to, by accident —
         // this makes it explicit). Falls back to white for an out-of-range
         // classId, same defensiveness as classDefOf()'s fallback to class 0.
-        uint16_t tint = b.p[i].classId < 4 ? kClassColor[b.p[i].classId] : TFT_WHITE;
+        uint16_t tint = b.p[i].classId < kClassColorCount
+                            ? kClassColor[b.p[i].classId] : TFT_WHITE;
         d.g.setTextColor(tint, TFT_BLACK);
       }
       // '>' marks the player's own row — same info the old code left the
@@ -389,7 +397,7 @@ struct CardputerUi : SessionUi {
 // default, older than the host tests' -std=c++17) doesn't treat a static
 // constexpr array member as implicitly inline, so indexing it in
 // drawCombatants() odr-uses it and the linker needs a home for it.
-constexpr uint16_t CardputerUi::kClassColor[4];
+constexpr uint16_t CardputerUi::kClassColor[];
 
 static RadioTransport gTransport;
 static ArduinoClock   gClock;
