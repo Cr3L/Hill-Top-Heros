@@ -30,7 +30,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
 | 2 | Player identity (name entry) | Open | Small |
 | 2 | Version-mismatch UX | Open | Not started |
-| 3 | Visual confirmation (HP bars, flee prompt) | Blocked | Needs 2 units in a real match — only tested single-unit via practice mode so far |
+| 3 | Visual confirmation (HP bars, flee prompt) | Done | HP/MP bars, hit/heal flash, and pairing confirmed in a real 2-unit match; flee prompt itself not exercised this run |
 | 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
 | 3 | 16-color palette | Done | `DIM`/`BORDER`/`SELECT`/`SPARE` slots drafted but not yet consumed by anything |
 | 3 | Hit/heal animation feedback | Done | Directional flash (HIT_FX/HEAL_FX), confirmed on hardware; true multi-frame fade/shake still open |
@@ -131,9 +131,13 @@ The protocol works; the experience around it is minimal.
 
 Safe to build without touching anything the test suite defends.
 
-- **Visual confirmation of the HP bars and the flee prompt** — both landed
-  (`91e3117`, `0657b44`) but never seen live; blocked on a second Cardputer.
-  First thing to close once hardware allows.
+- ~~**Visual confirmation of the HP bars and the flee prompt.**~~ Confirmed:
+  both units flashed with current `main`, paired over LoRa, played a full
+  match — HP/MP bars, class-tinted names, and the hit/heal flash colors
+  (`HIT_FX`/`HEAL_FX`) all render correctly over real radio round-trips, not
+  just single-unit practice mode. Not exercised this run: the flee prompt
+  itself (`ACT_FLEE`, key `5`) — already covered by `testFleeForfeits` in the
+  host suite, just not seen live yet.
 - ~~A title/attract screen.~~ Landed: idle `status()` now draws a title
   (name + `Frame`'s corner version stamp) with the Host/Join prompt below it
   as a real menu section, per `tools/designs/title_screen.json` and
