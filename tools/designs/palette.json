@@ -1,0 +1,49 @@
+{
+  "regions": [
+    { "name": "BG",      "x": 0,   "y": 0,   "w": 59, "h": 34, "c": 0,     "fill": true, "mark": 65535, "type": "rect" },
+    { "name": "TEXT",    "x": 60,  "y": 0,   "w": 59, "h": 34, "c": 65535, "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "HP_FULL", "x": 120, "y": 0,   "w": 59, "h": 34, "c": 2016,  "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "HP_MID",  "x": 180, "y": 0,   "w": 59, "h": 34, "c": 65504, "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "HP_LOW",  "x": 0,   "y": 34,  "w": 59, "h": 34, "c": 63488, "fill": true, "mark": 65535, "type": "rect" },
+    { "name": "MP",      "x": 60,  "y": 34,  "w": 59, "h": 34, "c": 31,    "fill": true, "mark": 65535, "type": "rect" },
+    { "name": "HEAL_FX", "x": 120, "y": 34,  "w": 59, "h": 34, "c": 2047,  "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "HIT_FX",  "x": 180, "y": 34,  "w": 59, "h": 34, "c": 64800, "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "BUNYAN",  "x": 0,   "y": 68,  "w": 59, "h": 34, "c": 35362, "fill": true, "mark": 65535, "type": "rect" },
+    { "name": "DRIFTER", "x": 60,  "y": 68,  "w": 59, "h": 34, "c": 34816, "fill": true, "mark": 65535, "type": "rect" },
+    { "name": "COYOTE",  "x": 120, "y": 68,  "w": 59, "h": 34, "c": 54705, "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "VOODOO",  "x": 180, "y": 68,  "w": 59, "h": 34, "c": 24595, "fill": true, "mark": 65535, "type": "rect" },
+    { "name": "DIM",     "x": 0,   "y": 102, "w": 59, "h": 33, "c": 33808, "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "BORDER",  "x": 60,  "y": 102, "w": 59, "h": 33, "c": 16904, "fill": true, "mark": 65535, "type": "rect" },
+    { "name": "SELECT",  "x": 120, "y": 102, "w": 59, "h": 33, "c": 65088, "fill": true, "mark": 0,     "type": "rect" },
+    { "name": "SPARE",   "x": 180, "y": 102, "w": 59, "h": 33, "c": 50712, "fill": true, "mark": 0,     "type": "rect" }
+  ],
+  "labels": [
+    { "text": "BG",       "x": 2,   "y": 2,   "c": 65535 },
+    { "text": "TEXT",     "x": 62,  "y": 2,   "c": 0 },
+    { "text": "HP-FULL",  "x": 122, "y": 2,   "c": 0 },
+    { "text": "HP-MID",   "x": 182, "y": 2,   "c": 0 },
+    { "text": "HP-LOW",   "x": 2,   "y": 36,  "c": 65535 },
+    { "text": "MP",       "x": 62,  "y": 36,  "c": 65535 },
+    { "text": "HEAL-FX",  "x": 122, "y": 36,  "c": 0 },
+    { "text": "HIT-FX",   "x": 182, "y": 36,  "c": 0 },
+    { "text": "BUNYAN",   "x": 2,   "y": 70,  "c": 65535 },
+    { "text": "DRIFTER",  "x": 62,  "y": 70,  "c": 65535 },
+    { "text": "COYOTE",   "x": 122, "y": 70,  "c": 0 },
+    { "text": "VOODOO",   "x": 182, "y": 70,  "c": 65535 },
+    { "text": "DIM",      "x": 2,   "y": 104, "c": 0 },
+    { "text": "BORDER",   "x": 62,  "y": 104, "c": 65535 },
+    { "text": "SELECT",   "x": 122, "y": 104, "c": 0 },
+    { "text": "SPARE",    "x": 182, "y": 104, "c": 0 }
+  ],
+  "palette16": [
+    0, 65535, 2016, 65504,
+    63488, 31, 2047, 64800,
+    35362, 34816, 54705, 24595,
+    33808, 16904, 65088, 50712
+  ],
+  "selReg": 0,
+  "selLabel": 0,
+  "show": { "bounds": true, "labels": true, "safe": false },
+  "tool": "region",
+  "zoom": 3
+}
