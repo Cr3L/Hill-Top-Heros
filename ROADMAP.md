@@ -13,6 +13,33 @@ actions (attack/guard/skill/item/flee), turn cap, HP bars, rematch on `q`.
 That's the whole game. Everything below is what's not there yet, organized by
 how close it sits to the tested core.
 
+## Status at a glance
+
+One row per item below, kept in sync with it — the prose in each group is
+still the source of truth for *why*; this table is only for *where things
+stand*. Update both together, same as everywhere else in this file.
+
+| Group | Item | Status | Notes |
+| --- | --- | --- | --- |
+| 1 | `ACT_FLEE` | Done | |
+| 1 | More classes / equipment / leveling | Open | Own `PROTO_VERSION` task, not started |
+| 1 | Player-chosen class (existing 4) | Open | Own `PROTO_VERSION` task; UI mockup drafted, not wired |
+| 1 | Status effects | Open | Not started |
+| 1 | Balance beyond the 4-cycle | Open | Depends on player-chosen class landing first |
+| 2 | Rejoin after "peer unreachable" | Open | **Highest-value item overall** — unblocked now that 2-radio pairing is confirmed |
+| 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
+| 2 | Player identity (name entry) | Open | Small |
+| 2 | Version-mismatch UX | Open | Not started |
+| 3 | Visual confirmation (HP bars, flee prompt) | Blocked | Needs 2 units in a real match — only tested single-unit via practice mode so far |
+| 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
+| 3 | 16-color palette | Done | `HEAL_FX`/`HIT_FX`/`DIM`/`BORDER`/`SELECT`/`SPARE` slots drafted but not yet consumed by anything |
+| 3 | Hit/heal animation feedback | Open | Not started |
+| 3 | Sound | Open | Blocked on checking whether the buzzer is even wired |
+| 3 | Match history | Open | Needs NVS persistence — first persistence this project would have |
+| 4 | Two-radio test | Done | Full match played to a verdict on real RF |
+| 4 | EU frequency + duty cycle | Open | Only urgent before a unit goes on air outside US/AU |
+| 4 | Power management | Open | Not started, untested |
+
 ## 1. Finish the combat loop (touches `rpg_link.*` — the tested core)
 
 The highest-leverage group, because every item here is covered by the same
