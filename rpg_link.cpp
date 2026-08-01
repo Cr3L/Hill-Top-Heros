@@ -70,10 +70,10 @@ bool seedCommitMatches(uint32_t seed, const uint8_t commit[8]) {
 //
 // RNG CONTRACT. The number of rng.range() calls ACT_SKILL makes depends only on
 // classId — never on hp, mp, guarding or damage. Both peers hold the same
-// classId (it comes from the shared seed and is hashed), so both make the same
-// calls in the same order. A skill that rolled an extra die "if the foe is
-// below half" would happen to stay in sync today and would be a trap for the
-// next edit; don't introduce one.
+// classId (player-chosen, exchanged over PKT_JOIN_REQ/PKT_JOIN_ACK and hashed),
+// so both make the same calls in the same order. A skill that rolled an extra
+// die "if the foe is below half" would happen to stay in sync today and would
+// be a trap for the next edit; don't introduce one.
 //
 //   classId  name     rng.range() calls, in order
 //   0        Bunyan   (0,4)
@@ -114,30 +114,39 @@ static const ClassDef CLASS_TABLE[] = {
   { "Voodoo",    88,   31,   8,   7,   7,   7,   4 },
 };
 static const uint8_t CLASS_COUNT = sizeof(CLASS_TABLE) / sizeof(CLASS_TABLE[0]);
-// battleInit() takes two seed bits per side, so the table has to be exactly
-// four entries. Add a fifth class and the draw silently never picks it.
-static_assert(CLASS_COUNT == 4, "class draw uses 2 seed bits per side");
+// Not sim-constrained anymore (battleInit() takes classId as an argument, not
+// a seed derivation) — it's the class-pick UI (main.cpp) that currently only
+// offers 4 choices. Adding a 5th is a content change there, not a sim one.
 
-// One bounds policy for a corrupt classId, in one place. Two call sites with
-// two different fallbacks would invent a third behaviour between them.
+// One bounds policy for a corrupt classId, in one place. Every call site that
+// indexes CLASS_TABLE from an untrusted id (a Combatant's, or a raw id handed
+// to battleInit()) routes through this rather than inventing its own fallback.
+static uint8_t clampClassId(uint8_t id) { return id < CLASS_COUNT ? id : 0; }
+
 static const ClassDef& classDefOf(const Combatant& c) {
-  return CLASS_TABLE[c.classId < CLASS_COUNT ? c.classId : 0];
+  return CLASS_TABLE[clampClassId(c.classId)];
 }
 
 uint8_t classCount() { return CLASS_COUNT; }
 uint8_t skillCostOf(const Combatant& c) { return classDefOf(c).skillCost; }
+const char* classNameOf(uint8_t classId) {
+  return CLASS_TABLE[clampClassId(classId)].name;
+}
 
-void battleInit(BattleState& b, uint32_t seed) {
+void battleInit(BattleState& b, uint32_t seed,
+                 uint8_t hostClassId, uint8_t joinerClassId) {
   // Must stay first. battleHash() covers all 12 bytes of name[] and every
   // trailing field, and callers routinely hand us an uninitialised stack
   // BattleState — without this, two peers with the same seed hash differently.
   memset(&b, 0, sizeof(b));
   b.rng.seed(seed);   // turn and every other field are already zeroed above
 
+  const uint8_t ids[2] = { hostClassId, joinerClassId };
   for (int i = 0; i < 2; i++) {
-    // Class comes from seed bits, not from the rng: drawing here would shift
-    // every subsequent damage roll and invalidate the streams the tests pin.
-    uint8_t cid = (uint8_t)((seed >> (i * 2)) & 3);
+    // Class is player-chosen, not drawn from the rng: drawing here would
+    // shift every subsequent damage roll and invalidate the streams the
+    // tests pin.
+    uint8_t cid = clampClassId(ids[i]);
     const ClassDef& cd = CLASS_TABLE[cid];
     Combatant& c = b.p[i];
     strncpy(c.name, cd.name, sizeof(c.name) - 1);

@@ -378,6 +378,37 @@ struct CardputerUi : SessionUi {
 
   void log(const char* msg) override { Serial.println(msg); }
 
+  // Pre-match class pick. Position-only reference is tools/designs/
+  // character_select.json — that mockup previews at text-size-1 while this
+  // screen renders at kBodyTextSize like everything else (see CLAUDE.md's
+  // note on the UI design workflow), so this is a fresh layout in the same
+  // spirit, not a literal port. Picking is a single keypress ('1'-'4'),
+  // matching how battle actions already work, rather than the mockup's
+  // arrow-then-Enter.
+  void classSelect() {
+    Frame d(*this);
+    d.g.setTextDatum(textdatum_t::top_center);
+    d.g.drawString("SELECT CLASS", kPanelW / 2, 0);
+    d.g.setTextDatum(textdatum_t::top_left);
+    d->setCursor(0, 20);
+    // Blurb order matches CLASS_TABLE in rpg_link.cpp, same as kClassColor[]
+    // above it — flavor text isn't part of ClassDef, so it's the one array
+    // here that still has to track the table by hand. Names come from
+    // classNameOf() rather than a second hand-copied list.
+    static const char* blurb[] = {
+      "tank, hits back",
+      "glass cannon burst",
+      "twin-hit skirmisher",
+      "drains, punishes glass",
+    };
+    for (uint8_t i = 0; i < classCount() && i < kClassColorCount; i++) {
+      d.g.setTextColor(kClassColor[i], TFT_BLACK);
+      d->printf("%d)%s - %s\n", i + 1, classNameOf(i), blurb[i]);
+    }
+    d.g.setTextColor(TFT_WHITE, TFT_BLACK);
+    d->println("Q=cancel");
+  }
+
   // Local single-device demo: renders straight from a BattleState the caller
   // owns in main.cpp, bypassing Session/Transport entirely. The human is
   // always slot 0 — there's no host/joiner concept with one device — and
@@ -421,6 +452,13 @@ static BattleState gPracticeBattle{};
 // and gSession are mutually exclusive), but keeping the streams separate is
 // the rule this file follows everywhere else, not a special case for this.
 static Rng gPracticeBotRng;
+
+// Class-pick gate, shown before hosting/joining/practice actually starts.
+// Lives here rather than as a LinkState because it's not part of the match
+// protocol at all — Session doesn't need to know a pick is in progress, only
+// the classId it ends with (see Session::onKey's LS_IDLE comment).
+enum PendingAction { PA_NONE, PA_HOST, PA_JOIN, PA_PRACTICE };
+static PendingAction gPendingAction = PA_NONE;
 
 static ActionId practiceBotChoose(const BattleState& b) {
   const Combatant& me = b.p[1];
@@ -505,17 +543,42 @@ void loop() {
         break;
       }
 
+      if (gPendingAction != PA_NONE) {
+        if (c == 'q') {
+          // Only reachable from LS_IDLE (see below), so this always returns
+          // to the same idle screen the pick was entered from.
+          gPendingAction = PA_NONE;
+          gUi.status("H=host  J=join");
+          break;
+        }
+        if (c < '1' || c > '4') break;
+        uint8_t classId = (uint8_t)(c - '1');
+        PendingAction action = gPendingAction;
+        gPendingAction = PA_NONE;
+        if (action == PA_HOST) {
+          gSession.startHosting(classId);
+        } else if (action == PA_JOIN) {
+          gSession.startJoining(classId);
+        } else {  // PA_PRACTICE
+          battleInit(gPracticeBattle, esp_random(), classId,
+                     (uint8_t)(esp_random() % classCount()));
+          gPracticeBotRng.seed(esp_random());
+          gUi.lastHp[0] = gUi.lastHp[1] = -1;
+          gUi.lastDelta[0] = gUi.lastDelta[1] = 0;
+          gPracticeOn = true;
+          gUi.practiceBattle(gPracticeBattle, -1);
+        }
+        break;
+      }
+
       LinkState before = gSession.state();
       if (gSession.state() == LS_OVER) {
         if (c == 'q') gSession.rematch(esp_random());
-      } else if (gSession.state() == LS_IDLE && c == 'p') {
-        battleInit(gPracticeBattle, esp_random());
-        gPracticeBotRng.seed(esp_random());
-        gUi.lastHp[0] = gUi.lastHp[1] = -1;
-        gUi.lastDelta[0] = gUi.lastDelta[1] = 0;
-        gPracticeOn = true;
-        gUi.practiceBattle(gPracticeBattle, -1);
-        break;  // entering practice mode is a transition too, even though
+      } else if (gSession.state() == LS_IDLE &&
+                 (c == 'p' || c == 'h' || c == 'j')) {
+        gPendingAction = c == 'p' ? PA_PRACTICE : c == 'h' ? PA_HOST : PA_JOIN;
+        gUi.classSelect();
+        break;  // entering the pick screen is a transition too, even though
                 // gSession's own state doesn't move
       } else {
         gSession.onKey(c);

@@ -36,6 +36,7 @@ void Session::resetMatchState() {
   peerId_   = 0;
   isHost_   = false;
   peerSeed_ = 0;
+  peerClassId_ = 0;
   memset(peerCommit_, 0, sizeof(peerCommit_));
   txSeq_    = 1;
   memset(seen_, 0, sizeof(seen_));
@@ -70,16 +71,18 @@ void Session::rematch(uint32_t seed) {
   begin(myId_, seed);
 }
 
-void Session::startHosting() {
+void Session::startHosting(uint8_t classId) {
   state_    = LS_BEACONING;
   isHost_   = true;
+  myClassId_ = classId;
   lastRxAt_ = clk_.now();
   ui_.status("hosting...");
 }
 
-void Session::startJoining() {
+void Session::startJoining(uint8_t classId) {
   state_    = LS_JOINING;
   isHost_   = false;
+  myClassId_ = classId;
   lastRxAt_ = clk_.now();
   ui_.status("searching...");
 }
@@ -238,6 +241,7 @@ void Session::handlePacket(const Packet& p) {
         memcpy(peerCommit_, p.commit, sizeof(peerCommit_));
         Packet j{};
         j.type = PKT_JOIN_REQ; j.dst = peerId_; j.seedHalf = mySeed_;
+        j.classId = myClassId_;
         txPacket(j, true, PKT_JOIN_ACK);
         state_ = LS_HANDSHAKE;
         ui_.status("joining...");
@@ -252,8 +256,10 @@ void Session::handlePacket(const Packet& p) {
         peerId_   = p.src;
         isHost_   = true;
         peerSeed_ = p.seedHalf;
+        peerClassId_ = p.classId;
         Packet a{};
         a.type = PKT_JOIN_ACK; a.dst = peerId_; a.seedHalf = mySeed_;
+        a.classId = myClassId_;
         txPacket(a, true, PKT_READY);  // wait for READY, not for a bare ACK
         state_ = LS_HANDSHAKE;
         ui_.status("challenger!");
@@ -267,7 +273,8 @@ void Session::handlePacket(const Packet& p) {
           break;
         }
         peerSeed_ = p.seedHalf;
-        battleInit(b_, mySeed_ ^ peerSeed_);
+        peerClassId_ = p.classId;
+        battleInit(b_, mySeed_ ^ peerSeed_, hostClassId(), joinerClassId());
         battleStarted_ = true;
         sendReady();
         enterMyTurn();
@@ -283,7 +290,7 @@ void Session::handlePacket(const Packet& p) {
 
     case PKT_READY:
       if (state_ == LS_HANDSHAKE && isHost_) {
-        battleInit(b_, mySeed_ ^ peerSeed_);
+        battleInit(b_, mySeed_ ^ peerSeed_, hostClassId(), joinerClassId());
         battleStarted_ = true;
         enterMyTurn();
       }
@@ -557,11 +564,10 @@ void Session::poll() {
 
 void Session::onKey(char c) {
   switch (state_) {
-    case LS_IDLE:
-      if (c == 'h') startHosting();
-      if (c == 'j') startJoining();
-      break;
-
+    // LS_IDLE has no key handling here: hosting/joining now need a
+    // player-chosen classId, which this single-char interface can't carry.
+    // main.cpp's class-pick gate calls startHosting()/startJoining()
+    // directly once a class is confirmed, without going through onKey().
     case LS_MY_TURN: {
       ActionId a = ACT_NONE;
       if (c == '1') a = ACT_ATTACK;

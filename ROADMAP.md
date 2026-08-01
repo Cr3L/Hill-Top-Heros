@@ -23,7 +23,7 @@ stand*. Update both together, same as everywhere else in this file.
 | --- | --- | --- | --- |
 | 1 | `ACT_FLEE` | Done | |
 | 1 | More classes / equipment / leveling | Shelved | Own `PROTO_VERSION` task, not started |
-| 1 | Player-chosen class (existing 4) | Open | Own `PROTO_VERSION` task; UI mockup drafted, not wired |
+| 1 | Player-chosen class (existing 4) | Done | `PROTO_VERSION` 4→5; class rides `PKT_JOIN_REQ`/`PKT_JOIN_ACK`, `battleInit()` takes explicit ids; pick screen wired in `main.cpp`. Host-suite + firmware build verified; not yet confirmed on hardware |
 | 1 | Status effects | Shelved | Not started |
 | 1 | Balance beyond the 4-cycle | Shelved | Depends on player-chosen class landing first |
 | 2 | Rejoin after "peer unreachable" | Done | LS_LINGER + PKT_STATUS landed (sim-verified); both-sides-stuck sub-case deferred (livelock risk); real hardware disconnect test still open |
@@ -57,31 +57,22 @@ lockstep-determinism guarantee the suite already defends.
   `seedCommit()` values from the old layout, whether old commits become
   unparseable across the bump. Scope it as its own `PROTO_VERSION` task before
   touching it, not as a line item alongside equipment/leveling.
-- **Player-chosen class, among the existing 4.** Distinct from the bullet
-  above — this doesn't touch the seed layout at all. `battleInit()` currently
-  draws class from 2 raw seed bits specifically because it was never meant to
-  be a choice; picking one of the 4 that already exist is a decoupling, not a
-  redesign:
-  - Class has no fairness stake, unlike the RNG seed — there's nothing to gain
-    by lying about which class you want — so it can be exchanged in the clear,
-    same as the joiner's `seedHalf` already is. It rides the existing
-    `PKT_JOIN_REQ`/`PKT_JOIN_ACK` round trip, one new `uint8_t classChoice`
-    each way, and does not interact with `seedCommit()`/`seedCommitMatches()`
-    at all.
-  - `Packet` is 37 bytes today against a hard 40-byte cap
-    (`static_assert`, ~50ms airtime budget at SF7/BW125/CR5) — one byte per
-    direction fits with room to spare.
-  - Still needs a `PROTO_VERSION` bump (4→5): this project's stated policy is
-    that any wire *or sim-rule* change earns one, and swapping seed-derived
-    class for a chosen one is a sim-rule change even though the seed layout
-    itself doesn't move.
-  - `battleInit()` changes to take two explicit `classId` args instead of
-    deriving them from seed bits; drop the `(seed >> (i*2)) & 3` line and its
-    `static_assert(CLASS_COUNT == 4, ...)` tie.
-  - Needs a pre-handshake class-pick UI — `tools/designs/character_select.json`
-    is a drafted mockup for exactly this, landed ahead of the feature per the
-    "mockups aren't wired to runtime state" note in `CLAUDE.md`. Landing the
-    JSON did not land this item.
+- ~~**Player-chosen class, among the existing 4.**~~ Landed: `Packet` gained
+  `classId` (37→38 bytes, `PROTO_VERSION` 4→5) riding the existing
+  `PKT_JOIN_REQ`/`PKT_JOIN_ACK` round trip, in the clear — no fairness stake,
+  so it doesn't touch `seedCommit()`/`seedCommitMatches()`. `battleInit()`
+  now takes explicit `hostClassId`/`joinerClassId` args instead of deriving
+  them from seed bits; the old `CLASS_COUNT == 4` `static_assert` is gone
+  (class count is no longer sim-constrained, just limited by the pick UI).
+  `main.cpp` gained a pre-match pick screen (`CardputerUi::classSelect()`,
+  single-keypress `1`-`4`) gating `h`/`j`/`p` from `LS_IDLE` — a fresh layout
+  in the spirit of `tools/designs/character_select.json` rather than a
+  literal port, since that mockup previews at a different text size (see the
+  UI design workflow note above). Verified: `make -C test` (host suite,
+  including a rewritten `testClassChoice` covering every class in both
+  seats) and `pio run` (firmware build) both green. Not yet confirmed on
+  hardware — a two-unit match with two explicitly different chosen classes
+  is a natural follow-up.
 - **Status effects** (poison, stun, buffs). Nothing in `BattleState` models a
   multi-turn effect today; `guarding` is the only per-turn flag and it resets
   every turn. A real status system needs a duration field in `Combatant`,

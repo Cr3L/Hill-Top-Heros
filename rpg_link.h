@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 // Wire format. Everything is little-endian, packed, fixed size.
 // Keep this struct <= 40 bytes: at SF7/BW125/CR5 that is ~50ms airtime.
-// Current size: 37 bytes.
+// Current size: 38 bytes.
 // ---------------------------------------------------------------------------
 
 static const uint16_t PROTO_MAGIC   = 0x5247;  // 'RG'
@@ -21,7 +21,10 @@ static const uint16_t PROTO_MAGIC   = 0x5247;  // 'RG'
 //      rules pair fine and then abort on the first stateHash compare, blaming
 //      a tampered match for what is really firmware skew. Refusing to pair is
 //      the honest answer, so a sim change earns a bump too.
-static const uint8_t  PROTO_VERSION = 4;
+//   5: classId added to Packet (37 -> 38 bytes), rides PKT_JOIN_REQ/
+//      PKT_JOIN_ACK. Both a layout change and a sim-rule change: class is now
+//      player-chosen instead of seed-derived.
+static const uint8_t  PROTO_VERSION = 5;
 
 enum PktType : uint8_t {
   PKT_BEACON   = 0x01,  // "I'm open for a duel" + commitment to my seed half
@@ -70,13 +73,14 @@ struct __attribute__((packed)) Packet {
   uint8_t  commit[8];  // handshake commitment (BEACON only)
   uint16_t turn;       // which turn this action belongs to
   uint8_t  action;     // ActionId, or ByeReason on PKT_BYE
+  uint8_t  classId;    // sender's chosen class (PKT_JOIN_REQ / PKT_JOIN_ACK)
   uint32_t stateHash;  // sender's pre-turn hash, i.e. post-turn hash of turn-1
   uint16_t crc;        // over all preceding bytes — MUST stay the last member
 };
 
 // Wire layout is frozen per PROTO_VERSION. If this fires, you changed the
 // packet: bump PROTO_VERSION above and update this size to match.
-static_assert(sizeof(Packet) == 37, "Packet layout changed - bump PROTO_VERSION");
+static_assert(sizeof(Packet) == 38, "Packet layout changed - bump PROTO_VERSION");
 static_assert(sizeof(Packet) <= 40, "Packet too large for the airtime budget");
 
 uint16_t crc16(const uint8_t* d, size_t n);
@@ -151,7 +155,8 @@ struct Combatant {
   uint8_t  items;
   // Selects the ACT_SKILL formula, and with it how many rng.range() calls that
   // action consumes. Both peers must agree or the streams diverge silently, so
-  // it is derived from the shared seed and hashed like any other field.
+  // it is a battleInit() argument (player-chosen, exchanged over PKT_JOIN_REQ/
+  // PKT_JOIN_ACK) and hashed like any other field.
   uint8_t  classId;    // index into CLASS_TABLE in rpg_link.cpp
 };
 
@@ -168,13 +173,20 @@ struct BattleState {
 // a verdict. Also keeps Packet::turn clear of its uint16_t ceiling.
 static const uint16_t MAX_TURNS = 100;
 
-void     battleInit(BattleState& b, uint32_t seed);
+// hostClassId/joinerClassId are player-chosen (see PKT_JOIN_REQ/PKT_JOIN_ACK),
+// not derived from seed — an out-of-range id falls back to class 0, the same
+// bounds policy classDefOf() uses for a corrupt one.
+void     battleInit(BattleState& b, uint32_t seed,
+                     uint8_t hostClassId, uint8_t joinerClassId);
 // MP an ACT_SKILL costs this combatant. Per-class, so neither the UI nor a test
 // can assume a single number. Falls back to class 0 for an invalid classId.
 uint8_t  skillCostOf(const Combatant& c);
 // How many classes exist, so a test can cover all of them without hardcoding a
 // number the class table would silently outgrow.
 uint8_t  classCount();
+// Display name for a classId (e.g. the class-pick UI), bounds-checked the
+// same way classDefOf() is. CLASS_TABLE itself stays private to rpg_link.cpp.
+const char* classNameOf(uint8_t classId);
 // There are exactly two slots, so a combatant's target is always the other one.
 // Targets are therefore not parameters — a target byte off the radio used to be
 // able to make an attacker hit itself.

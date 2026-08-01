@@ -13,6 +13,17 @@
 #include <string.h>
 #include <initializer_list>
 
+// Cheap way to walk every class across a seed loop without hardcoding which
+// seed lands which class (there's no such mapping anymore — class is an
+// explicit arg now). Host/joiner get adjacent classes so seed variety still
+// exercises every (host, joiner) pairing over enough iterations.
+static uint8_t seedHostClass(uint32_t seed, int nClasses) {
+  return (uint8_t)(seed % nClasses);
+}
+static uint8_t seedJoinerClass(uint32_t seed, int nClasses) {
+  return (uint8_t)((seed + 1) % nClasses);
+}
+
 // --------------------------------------------------------------- wire format
 
 static void testPacketLayout() {
@@ -110,8 +121,8 @@ static void testSeedCommit() {
 // the same hash. This is what the on-air stateHash check is protecting.
 static bool lockstepHolds(uint32_t seed, const ActionId (*script)[2], int n) {
   BattleState a, b;
-  battleInit(a, seed);
-  battleInit(b, seed);
+  battleInit(a, seed, 0, 1);
+  battleInit(b, seed, 0, 1);
   if (battleHash(a) != battleHash(b)) return false;
   for (int i = 0; i < n; i++) {
     battleResolve(a, script[i][0], script[i][1]);
@@ -140,8 +151,8 @@ static void testLockstep() {
   // Different seeds must produce a different hash immediately, so a seed
   // disagreement is caught at turn 0 rather than after damage has landed.
   BattleState x, y;
-  battleInit(x, 0x1111);
-  battleInit(y, 0x2222);
+  battleInit(x, 0x1111, 0, 1);
+  battleInit(y, 0x2222, 0, 1);
   CHECK(battleHash(x) != battleHash(y));
 }
 
@@ -159,49 +170,56 @@ static void testInitScrubsBuffer() {
     BattleState dirty, clean;
     memset(&dirty, 0xAB, sizeof(dirty));
     memset(&clean, 0x00, sizeof(clean));
-    battleInit(dirty, seed);
-    battleInit(clean, seed);
+    battleInit(dirty, seed, 2, 3);
+    battleInit(clean, seed, 2, 3);
     // Strictly stronger than comparing hashes: this also catches a byte the
     // hash does not currently cover but a future field might.
     CHECK(memcmp(&dirty, &clean, sizeof(dirty)) == 0);
   }
 }
 
-// Every class must be reachable, and both sides must be drawn independently —
-// a draw that always produced a mirror would hide half the balance table.
-static void testClassDraw() {
-  printf("class draw covers every class in both seats\n");
+// Every class must be selectable in either seat, independently of the other
+// seat's choice, and every field battleInit() sets from it must be correct
+// and hash-covered.
+static void testClassChoice() {
+  printf("battleInit takes an explicit class id per seat\n");
   const int nClasses = classCount();
   CHECK(nClasses > 0 && nClasses <= 8);
-  bool seen[2][8] = {{false}};
-  for (uint32_t seed = 1; seed <= 256; seed++) {
-    BattleState b;
-    battleInit(b, seed);
-    for (int i = 0; i < 2; i++) {
-      CHECK(b.p[i].classId < nClasses);
-      CHECK(b.p[i].hp == b.p[i].hpMax && b.p[i].hp > 0);
-      CHECK(b.p[i].mp == b.p[i].mpMax);
-      CHECK(b.p[i].name[0] != '\0');
-      // A class must be able to afford its own skill at least once, or it
-      // starts the match with a button that can never do anything.
-      CHECK(skillCostOf(b.p[i]) > 0 && b.p[i].mp >= skillCostOf(b.p[i]));
-      seen[i][b.p[i].classId] = true;
+
+  for (uint8_t hc = 0; hc < nClasses; hc++) {
+    for (uint8_t jc = 0; jc < nClasses; jc++) {
+      BattleState b;
+      battleInit(b, 1, hc, jc);
+      CHECK(b.p[0].classId == hc);
+      CHECK(b.p[1].classId == jc);
+      for (int i = 0; i < 2; i++) {
+        CHECK(b.p[i].hp == b.p[i].hpMax && b.p[i].hp > 0);
+        CHECK(b.p[i].mp == b.p[i].mpMax);
+        CHECK(b.p[i].name[0] != '\0');
+        // A class must be able to afford its own skill at least once, or it
+        // starts the match with a button that can never do anything.
+        CHECK(skillCostOf(b.p[i]) > 0 && b.p[i].mp >= skillCostOf(b.p[i]));
+      }
     }
   }
-  for (int i = 0; i < 2; i++)
-    for (int c = 0; c < nClasses; c++) CHECK(seen[i][c]);
+
+  // An out-of-range id (corrupt packet, untrusted caller) falls back to
+  // class 0 rather than indexing off the end of CLASS_TABLE.
+  BattleState oob;
+  battleInit(oob, 1, (uint8_t)nClasses, (uint8_t)(nClasses + 3));
+  CHECK(oob.p[0].classId == 0 && oob.p[1].classId == 0);
 
   // Every field that steers a decision must be hash-covered, or two peers can
   // disagree about it indefinitely without the stateHash exchange noticing.
   // classId picks the skill formula; items decides whether ACT_ITEM rolls.
   BattleState a, b;
-  battleInit(a, 1);
-  battleInit(b, 1);
+  battleInit(a, 1, 0, 1);
+  battleInit(b, 1, 0, 1);
   CHECK(a.p[0].items == b.p[0].items && a.p[0].items > 0);
   b.p[0].classId ^= 1;
   CHECK(battleHash(a) != battleHash(b));
 
-  battleInit(b, 1);
+  battleInit(b, 1, 0, 1);
   b.p[0].items--;
   CHECK(battleHash(a) != battleHash(b));
 }
@@ -221,23 +239,24 @@ static void testSkillRngCallCounts() {
   const int n = classCount();
   CHECK(n == (int)(sizeof(calls) / sizeof(calls[0])));
 
-  for (uint32_t seed = 1; seed <= 64; seed++) {
-    BattleState b;
-    battleInit(b, seed);
-    // Only p[0] acts, and it is guaranteed to afford its skill on turn 0.
-    int cid = b.p[0].classId;
-    Rng expect = b.rng;
-    for (int k = 0; k < calls[cid]; k++) expect.range(0, 1);
-    battleResolve(b, ACT_SKILL, ACT_NONE);
-    CHECK(b.rng.s == expect.s);
+  for (int cid = 0; cid < n; cid++) {
+    for (uint32_t seed = 1; seed <= 16; seed++) {
+      // Only p[0] acts, and it is guaranteed to afford its skill on turn 0.
+      BattleState b;
+      battleInit(b, seed, (uint8_t)cid, 0);
+      Rng expect = b.rng;
+      for (int k = 0; k < calls[cid]; k++) expect.range(0, 1);
+      battleResolve(b, ACT_SKILL, ACT_NONE);
+      CHECK(b.rng.s == expect.s);
 
-    // A fizzle must roll nothing at all, whatever the class.
-    BattleState f;
-    battleInit(f, seed);
-    f.p[0].mp = 0;
-    uint32_t before = f.rng.s;
-    battleResolve(f, ACT_SKILL, ACT_NONE);
-    CHECK(f.rng.s == before);
+      // A fizzle must roll nothing at all, whatever the class.
+      BattleState f;
+      battleInit(f, seed, (uint8_t)cid, 0);
+      f.p[0].mp = 0;
+      uint32_t before = f.rng.s;
+      battleResolve(f, ACT_SKILL, ACT_NONE);
+      CHECK(f.rng.s == before);
+    }
   }
 }
 
@@ -247,7 +266,7 @@ static void testNoSelfDamage() {
   // so a peer could make its opponent attack itself. Targets are gone now;
   // this pins the property down.
   BattleState b;
-  battleInit(b, 1);
+  battleInit(b, 1, 0, 1);
   int16_t hostBefore = b.p[0].hp;
   battleResolve(b, ACT_ATTACK, ACT_NONE);
   CHECK(b.p[0].hp == hostBefore);
@@ -260,7 +279,7 @@ static void testFleeForfeits() {
   // One side flees: they lose outright, no roll involved, no damage exchanged.
   {
     BattleState b;
-    battleInit(b, 1);
+    battleInit(b, 1, 0, 1);
     int16_t foeHpBefore = b.p[1].hp;
     battleResolve(b, ACT_FLEE, ACT_NONE);
     CHECK(battleWinner(b) == 1);
@@ -271,7 +290,7 @@ static void testFleeForfeits() {
   // already uses, not a special case.
   {
     BattleState b;
-    battleInit(b, 1);
+    battleInit(b, 1, 0, 1);
     battleResolve(b, ACT_FLEE, ACT_FLEE);
     CHECK(battleWinner(b) == 2);
   }
@@ -282,8 +301,8 @@ static void testGuardReducesDamage() {
   printf("guard mitigates\n");
   uint32_t seed = 99;
   BattleState unguarded, guarded;
-  battleInit(unguarded, seed);
-  battleInit(guarded, seed);
+  battleInit(unguarded, seed, 0, 1);
+  battleInit(guarded, seed, 0, 1);
   battleResolve(unguarded, ACT_ATTACK, ACT_NONE);
   battleResolve(guarded,   ACT_ATTACK, ACT_GUARD);
   CHECK(guarded.p[1].hp >= unguarded.p[1].hp);
@@ -294,7 +313,7 @@ static void testGuardReducesDamage() {
 static void testSkillCostsMp() {
   printf("skill drains mp and fizzles when empty\n");
   BattleState b;
-  battleInit(b, 5);
+  battleInit(b, 5, 0, 1);
   int16_t mp0 = b.p[0].mp;
   uint8_t cost = skillCostOf(b.p[0]);  // per-class; do not hardcode
   CHECK(cost > 0);
@@ -311,7 +330,7 @@ static void testSkillCostsMp() {
 static void testItemCapsAtMax() {
   printf("item never overheals\n");
   BattleState b;
-  battleInit(b, 7);
+  battleInit(b, 7, 0, 1);
   b.p[0].hp = b.p[0].hpMax - 1;
   battleResolve(b, ACT_ITEM, ACT_NONE);
   CHECK(b.p[0].hp == b.p[0].hpMax);
@@ -329,7 +348,7 @@ static void testMirrorsAreFair() {
   // Read through damage: whoever strikes first in a mutual-kill turn survives.
   for (int turn = 0; turn < 2; turn++) {
     BattleState b;
-    battleInit(b, 1);
+    battleInit(b, 1, 0, 1);
     b.p[1] = b.p[0];                   // an exact mirror, so only parity differs
     b.turn = turn;
     b.p[0].hp = b.p[1].hp = 1;         // either blow ends it
@@ -338,18 +357,22 @@ static void testMirrorsAreFair() {
   }
 
   // The outcome. Attack-only, so the match is decided by initiative and rng and
-  // nothing else — the cleanest look at the bias there is.
+  // nothing else — the cleanest look at the bias there is. Every class gets a
+  // mirror here since class is now chosen, not drawn — a wider check than the
+  // old seed-hunted sample that only landed a mirror ~1/4 of the time.
   int wins[2] = {0, 0}, mirrors = 0;
-  for (uint32_t seed = 1; seed <= 4000; seed++) {
-    BattleState b;
-    battleInit(b, seed);
-    if (b.p[0].classId != b.p[1].classId) continue;
-    mirrors++;
-    int guard = 0;
-    while (battleWinner(b) == -1 && guard++ < 500)
-      battleResolve(b, ACT_ATTACK, ACT_ATTACK);
-    int w = battleWinner(b);
-    if (w >= 0) wins[w]++;
+  const int nClasses = classCount();
+  for (int cid = 0; cid < nClasses; cid++) {
+    for (uint32_t seed = 1; seed <= 1000; seed++) {
+      BattleState b;
+      battleInit(b, seed, (uint8_t)cid, (uint8_t)cid);
+      mirrors++;
+      int guard = 0;
+      while (battleWinner(b) == -1 && guard++ < 500)
+        battleResolve(b, ACT_ATTACK, ACT_ATTACK);
+      int w = battleWinner(b);
+      if (w >= 0) wins[w]++;
+    }
   }
   CHECK(mirrors > 200);                // enough of a sample to mean anything
   // Wide on purpose. This is a regression bound, not a balance target: the old
@@ -361,9 +384,10 @@ static void testMirrorsAreFair() {
 
 static void testFightTerminates() {
   printf("fights terminate cleanly\n");
+  const int nClasses = classCount();
   for (uint32_t seed = 1; seed <= 64; seed++) {
     BattleState b;
-    battleInit(b, seed);
+    battleInit(b, seed, seedHostClass(seed, nClasses), seedJoinerClass(seed, nClasses));
     int guard = 0;
     while (battleWinner(b) == -1 && guard++ < 500)
       battleResolve(b, ACT_ATTACK, ACT_ATTACK);
@@ -384,6 +408,7 @@ static void testFightTerminatesUnderAllActions() {
   printf("fights terminate against a healing opponent\n");
   const ActionId moves[] = { ACT_ATTACK, ACT_GUARD, ACT_SKILL, ACT_ITEM };
   const int cap = MAX_TURNS * 4;       // generous; the sim should stop long first
+  const int nClasses = classCount();
   int worst = 0;
 
   for (uint32_t seed = 1; seed <= 400; seed++) {
@@ -391,7 +416,7 @@ static void testFightTerminatesUnderAllActions() {
     // heals whenever hurt, which is also what a human actually does.
     for (int greedy = 0; greedy < 2; greedy++) {
       BattleState b;
-      battleInit(b, seed);
+      battleInit(b, seed, seedHostClass(seed, nClasses), seedJoinerClass(seed, nClasses));
       Rng pick;                        // NOT the battle rng — that would desync
       pick.seed(seed * 2654435761u + 1);
       int guard = 0;
@@ -414,7 +439,7 @@ static void testFightTerminatesUnderAllActions() {
   // this WORSE, because an empty pouch fizzles instead of healing.
   for (uint32_t seed = 1; seed <= 64; seed++) {
     BattleState b;
-    battleInit(b, seed);
+    battleInit(b, seed, seedHostClass(seed, nClasses), seedJoinerClass(seed, nClasses));
     b.p[0].items = b.p[1].items = 0;
     b.p[0].mp    = b.p[1].mp    = 0;
     int guard = 0;
@@ -426,7 +451,7 @@ static void testFightTerminatesUnderAllActions() {
 
   // And the heal stays bounded, or the pouch is decorative.
   BattleState b;
-  battleInit(b, 9);
+  battleInit(b, 9, 0, 1);
   for (int i = 0; i < 10; i++) {
     b.p[0].hp = 1;
     battleResolve(b, ACT_ITEM, ACT_NONE);
@@ -438,7 +463,7 @@ static void testFightTerminatesUnderAllActions() {
 static void testWinnerReporting() {
   printf("winner reporting\n");
   BattleState b;
-  battleInit(b, 3);
+  battleInit(b, 3, 0, 1);
   CHECK(battleWinner(b) == -1);
   b.p[1].alive = 0; CHECK(battleWinner(b) == 0);
   b.p[0].alive = 0; CHECK(battleWinner(b) == 2);
@@ -477,7 +502,7 @@ int main() {
   testSeedCommit();
   testLockstep();
   testInitScrubsBuffer();
-  testClassDraw();
+  testClassChoice();
   testSkillRngCallCounts();
   testNoSelfDamage();
   testFleeForfeits();

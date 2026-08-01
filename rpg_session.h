@@ -82,8 +82,10 @@ class Session {
   void begin(uint32_t id, uint32_t seed);
   void rematch(uint32_t seed);         // back to LS_IDLE, keeps the same id
 
-  void startHosting();
-  void startJoining();
+  // classId is this device's player-chosen class (0..classCount()-1),
+  // exchanged with the peer over PKT_JOIN_REQ/PKT_JOIN_ACK.
+  void startHosting(uint8_t classId);
+  void startJoining(uint8_t classId);
   void onKey(char c);
   void poll();                         // call as often as you like
 
@@ -124,6 +126,12 @@ class Session {
   // the sim has actually decided. Single source of truth for both endMatch's
   // message and PKT_STATUS's wire reply — see outcomeMsg() in rpg_session.cpp.
   StatusOutcome myOutcome() const;
+  // battleInit()'s host/joiner classId args, resolved from whichever of
+  // myClassId_/peerClassId_ is actually sitting in that seat. Both
+  // battleInit() call sites need the same pair, so this is one place
+  // instead of the same two ternaries repeated at each.
+  uint8_t  hostClassId()   const { return isHost_ ? myClassId_ : peerClassId_; }
+  uint8_t  joinerClassId() const { return isHost_ ? peerClassId_ : myClassId_; }
   void     resolveTurn();              // both actions in hand; advance the sim
   void     enterMyTurn();              // LS_MY_TURN entry, every path
   void     chooseAction(ActionId a);   // shared by onKey and the move timer
@@ -136,6 +144,7 @@ class Session {
   uint32_t  myId_ = 0, peerId_ = 0;
   bool      isHost_ = false;
   uint32_t  mySeed_ = 0, peerSeed_ = 0;
+  uint8_t   myClassId_ = 0, peerClassId_ = 0;  // player-chosen, rides the handshake
   uint8_t   peerCommit_[8] = {0};      // from the beacon, checked at reveal
   uint16_t  txSeq_ = 1;
 

@@ -186,8 +186,8 @@ struct Rig {
     ui1.lines.clear();
     host.begin(0x1001, hostSeed);
     join.begin(0x2002, joinSeed);
-    host.startHosting();
-    join.startJoining();
+    host.startHosting(0);
+    join.startJoining(1);
   }
 
   // Advance virtual time, polling both peers. Presses keys for whoever is
