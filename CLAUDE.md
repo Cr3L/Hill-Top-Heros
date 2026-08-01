@@ -111,6 +111,13 @@ on both ends.
 | `main.cpp` | Hardware glue: SX1262, M5 display and keyboard, entry points. |
 | `test/` | Host test suite. No hardware, no Arduino toolchain. |
 
+`main.cpp` doesn't always go through `Session`: its local practice-vs-CPU mode
+calls `rpg_link`'s `battleInit()`/`battleResolve()` directly, skipping
+`Session`/`Transport` entirely. That's the right pattern for anything
+single-device — it reuses the tested pure sim without dragging in the FSM or
+radio — at the cost of a second UI path (`CardputerUi::drawCombatants()` is
+shared between the two so they can't drift on rendering).
+
 **What's built vs. what's still missing for a shippable game is tracked in
 [`ROADMAP.md`](ROADMAP.md)**, not here — update it when a roadmap item lands or
 a new gap is found, same as this file gets updated when the loop changes.
@@ -209,8 +216,16 @@ the raw struct would cover padding and was only ever deterministic by accident.
 
 ## Hardware
 
-Firmware builds with `pio run` (see `platformio.ini`) and has been flashed and
-booted on a Cardputer ADV with the official **Cap LoRa-1262**.
+```
+pio run              # build firmware
+pio run -t upload    # flash (port autodetected — see platformio.ini)
+pio device monitor   # serial log, 115200 over USB CDC
+```
+
+Not part of `make -C test`: `platformio.ini` explicitly filters `test/` out of
+the firmware build, and the host suite never touches `main.cpp` in the other
+direction — the two builds don't overlap. Has been flashed and booted on a
+Cardputer ADV with the official **Cap LoRa-1262**.
 
 ### Confirmed on hardware
 
