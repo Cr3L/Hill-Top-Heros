@@ -22,10 +22,10 @@ stand*. Update both together, same as everywhere else in this file.
 | Group | Item | Status | Notes |
 | --- | --- | --- | --- |
 | 1 | `ACT_FLEE` | Done | |
-| 1 | More classes / equipment / leveling | Open | Own `PROTO_VERSION` task, not started |
+| 1 | More classes / equipment / leveling | Shelved | Own `PROTO_VERSION` task, not started |
 | 1 | Player-chosen class (existing 4) | Open | Own `PROTO_VERSION` task; UI mockup drafted, not wired |
-| 1 | Status effects | Open | Not started |
-| 1 | Balance beyond the 4-cycle | Open | Depends on player-chosen class landing first |
+| 1 | Status effects | Shelved | Not started |
+| 1 | Balance beyond the 4-cycle | Shelved | Depends on player-chosen class landing first |
 | 2 | Rejoin after "peer unreachable" | Done | LS_LINGER + PKT_STATUS landed (sim-verified); both-sides-stuck sub-case deferred (livelock risk); real hardware disconnect test still open |
 | 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
 | 2 | Player identity (name entry) | Open | Small |
@@ -47,6 +47,9 @@ lockstep-determinism guarantee the suite already defends.
 
 - ~~`ACT_FLEE`.~~ Fixed `0657b44` — unconditional forfeit, key `5`, covered by
   `testFleeForfeits` and a `testLockstep` step. No wire-format change.
+- **Shelved for now** — more classes/equipment/leveling, status effects, and
+  balance-beyond-the-4-cycle, below. Not dropped, just off the active list;
+  revisit when picking the next group-1 task.
 - **More than 4 classes**, or per-class equipment/leveling. Not sized like the
   other bullets here — `battleInit()` draws the class from exactly 2 bits of
   the seed *because* there are exactly 4 classes. Adding a 5th isn't a content
