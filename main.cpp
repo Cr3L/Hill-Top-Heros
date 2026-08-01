@@ -208,6 +208,26 @@ struct CardputerUi : SessionUi {
   static constexpr int kHpBarH = 14;
   static constexpr int kMpBarH = 10;
 
+  // Source of truth: tools/designs/palette.json. Values that happen to equal
+  // a stock TFT_* macro (HP_LOW == TFT_RED, MP == TFT_BLUE, ...) are still
+  // named from the palette rather than left as the macro, so this list stays
+  // the one place that has to change if the palette is retuned.
+  static constexpr uint16_t kHpFullColor = 0x07E0;  // green
+  static constexpr uint16_t kHpMidColor  = 0xFFE0;  // yellow
+  static constexpr uint16_t kHpLowColor  = 0xF800;  // red
+  static constexpr uint16_t kMpColor     = 0x001F;  // blue
+
+  // BUNYAN/DRIFTER/COYOTE/VOODOO palette slots, indexed by classId. Order
+  // has to match the ClassId enum in rpg_link.cpp (CLS_BUNYAN=0 ..
+  // CLS_VOODOO=3) by position — that enum isn't exposed in rpg_link.h, so
+  // there's no way to reference it here by name.
+  static constexpr uint16_t kClassColor[4] = {
+    0x8A22,  // Bunyan  -- brown
+    0x8800,  // Drifter -- dark red
+    0xD5B1,  // Coyote  -- tan
+    0x6013,  // Voodoo  -- purple
+  };
+
   // Shared geometry for both bars below: a 1px white border, filled
   // interior inset 1px on every side so the fill never touches the border.
   // Height and fill color are the only things HP and MP disagree on.
@@ -234,12 +254,15 @@ struct CardputerUi : SessionUi {
   }
 
   static void hpBar(LovyanGFX& g, int y, int hp, int hpMax) {
-    // Below ~25% the bar itself carries the warning, not just the number
-    // inside it -- readable at a glance mid-battle, same reasoning as the
-    // hit/heal row-flash above. Green rather than white at full health so
-    // the embedded label has a consistent light-on-dark-or-mid-tone
-    // contrast at every fill level, not white-on-white at full HP.
-    uint16_t fillColor = (hpMax > 0 && hp * 4 <= hpMax) ? TFT_RED : TFT_GREEN;
+    // Three tiers, not two: full-color above 50%, a mid warning down to 25%,
+    // then the low-HP red -- the bar itself carries the warning at a glance,
+    // same reasoning as the hit/heal row-flash above. hpMax<=0 falls back to
+    // full-color, matching the old two-tier code's fallback.
+    uint16_t fillColor = kHpFullColor;
+    if (hpMax > 0) {
+      if (hp * 4 <= hpMax)      fillColor = kHpLowColor;   // <=25%
+      else if (hp * 2 <= hpMax) fillColor = kHpMidColor;   // <=50%
+    }
     statBar(g, y, kHpBarH, hp, hpMax, fillColor);
     char text[16];
     snprintf(text, sizeof(text), "%d/%d", hp, hpMax);
@@ -251,7 +274,7 @@ struct CardputerUi : SessionUi {
   // note below), and MP swings less dramatically turn to turn than HP
   // does, so it doesn't need the HP bar's full weight.
   static void mpBar(LovyanGFX& g, int y, int mp, int mpMax) {
-    statBar(g, y, kMpBarH, mp, mpMax, TFT_BLUE);
+    statBar(g, y, kMpBarH, mp, mpMax, kMpColor);
     char text[16];
     snprintf(text, sizeof(text), "M %d/%d", mp, mpMax);
     barLabel(g, y, kMpBarH, text);
@@ -278,6 +301,13 @@ struct CardputerUi : SessionUi {
       if (changed) {
         lastDelta[i] = b.p[i].hp - lastHp[i];
         d.g.setTextColor(TFT_BLACK, TFT_WHITE);
+      } else {
+        // Class tint on the name itself, rather than relying on whatever
+        // color barLabel() last left ambient (it used to, by accident —
+        // this makes it explicit). Falls back to white for an out-of-range
+        // classId, same defensiveness as classDefOf()'s fallback to class 0.
+        uint16_t tint = b.p[i].classId < 4 ? kClassColor[b.p[i].classId] : TFT_WHITE;
+        d.g.setTextColor(tint, TFT_BLACK);
       }
       // '>' marks the player's own row — same info the old code left the
       // player to infer from remembering which class they'd been dealt.
@@ -354,6 +384,12 @@ struct CardputerUi : SessionUi {
     }
   }
 };
+
+// Out-of-class definition: this build's C++ standard (Arduino-ESP32's
+// default, older than the host tests' -std=c++17) doesn't treat a static
+// constexpr array member as implicitly inline, so indexing it in
+// drawCombatants() odr-uses it and the linker needs a home for it.
+constexpr uint16_t CardputerUi::kClassColor[4];
 
 static RadioTransport gTransport;
 static ArduinoClock   gClock;
