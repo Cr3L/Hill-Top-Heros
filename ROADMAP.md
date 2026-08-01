@@ -103,23 +103,19 @@ Safe to build without touching anything the test suite defends.
   `main_menu.json`. Still open: the title's `GRAPHIC` placeholder region —
   no actual art yet, and Settings/About were dropped from the menu draft
   since nothing in the session FSM backs them.
-- **A standard 16-color palette.** No longer monochrome — the HP/MP bars now
-  use `TFT_RED`/`TFT_GREEN`/`TFT_BLUE`/`TFT_WHITE`, picked ad hoc (readable
-  fill vs. embedded label text, nothing more principled) while squeezing the
-  practice-mode battle screen. Still not a real palette: those are hardcoded
-  LovyanGFX constants in `main.cpp`, not sourced from anywhere. Not a
-  hardware limit either way — the panel is full rgb565, and
-  `tools/designs/*.json` drafts already carry a 16-entry `palette16`, but it
-  has never been wired into a `CardputerUi` draw call — same "mockup, not
-  runtime state" gap as the rest of those drafts.
-  **Workflow for this one, once picked:** tune the 16 colors visually in
-  `tools/ui_designer.html`'s palette editor and save the draft — the tool
-  supports this today. Translating the saved hex values into actual
-  `CardputerUi` color constants is a separate follow-up step; the tool does
-  not write C++ or touch `main.cpp` itself.
-  Settling on the 16 colors (HP bar states, class tints, hit/heal feedback)
-  is its own design pass, not a quick wiring change once picked — flagged as
-  open-ended rather than sized.
+- ~~A standard 16-color palette.~~ Landed (`37f1077`, `492fcf7`):
+  `tools/designs/palette.json` is a labeled legend draft (16 swatches, one
+  per intended use) approved as-is and wired into named `CardputerUi`
+  constants — `kHpFullColor`/`kHpMidColor`/`kHpLowColor`/`kMpColor`/
+  `kClassColor[]`. Two slots are now genuinely in use beyond the original
+  red/green/blue: HP_MID gives the HP bar a third tier (yellow, 25–50%,
+  between full and low), and each combatant's name is tinted by class
+  (BUNYAN/DRIFTER/COYOTE/VOODOO). Still open: `HEAL_FX`/`HIT_FX` (drafted,
+  not consumed by anything yet — see the animations bullet below),
+  `DIM`/`BORDER` (no de-emphasized UI exists to apply them to), `SELECT` (no
+  selectable menu exists yet), `SPARE` (unclaimed). Wire more of these as
+  the features that would use them get built, rather than forcing them in
+  now with no real consumer.
 - **Animations or feedback on hit/heal/skill.** Currently a battle() redraw is
   the only signal a turn resolved — no flash, no shake, no distinction between
   "you got hit" and "nothing happened this turn" beyond reading the numbers.
