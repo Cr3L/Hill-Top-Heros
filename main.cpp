@@ -216,6 +216,10 @@ struct CardputerUi : SessionUi {
   static constexpr uint16_t kHpMidColor  = 0xFFE0;  // yellow
   static constexpr uint16_t kHpLowColor  = 0xF800;  // red
   static constexpr uint16_t kMpColor     = 0x001F;  // blue
+  // Hit/heal row-flash backgrounds — see drawCombatants(). Unused until now;
+  // HEAL_FX/HIT_FX sat in the palette draft with no consumer.
+  static constexpr uint16_t kHitFxColor  = 0xFD20;  // orange-red
+  static constexpr uint16_t kHealFxColor = 0x07FF;  // cyan
 
   // BUNYAN/DRIFTER/COYOTE/VOODOO palette slots, indexed by classId. Order
   // has to match the ClassId enum in rpg_link.cpp (CLS_BUNYAN=0 ..
@@ -299,15 +303,17 @@ struct CardputerUi : SessionUi {
   // back after the HP bar's height was doubled.
   void drawCombatants(Frame& d, const BattleState& b, int me, const char* meLabel) {
     for (int i = 0; i < 2; i++) {
-      // Flash (inverted colors) the row whose HP moved since the last draw —
-      // hit or heal, no separate visual language for a first cut. Lasts only
-      // until the next redraw, since battle()/practiceBattle() fire on every
-      // poll or keypress, not just on turn resolution; a proper timed flash
-      // would need its own clock, not attempted here.
+      // Flash the row whose HP moved since the last draw — orange-red for
+      // damage, cyan for a heal, so "you got hit" reads differently from
+      // "nothing happened" at a glance instead of just from the numbers.
+      // Lasts only until the next redraw, since battle()/practiceBattle()
+      // fire on every poll or keypress, not just on turn resolution; a
+      // proper timed fade would need its own clock, not attempted here.
       bool changed = lastHp[i] >= 0 && b.p[i].hp != lastHp[i];
       if (changed) {
         lastDelta[i] = b.p[i].hp - lastHp[i];
-        d.g.setTextColor(TFT_BLACK, TFT_WHITE);
+        d.g.setTextColor(TFT_BLACK,
+                          lastDelta[i] < 0 ? kHitFxColor : kHealFxColor);
       } else {
         // Class tint on the name itself, rather than relying on whatever
         // color barLabel() last left ambient (it used to, by accident —

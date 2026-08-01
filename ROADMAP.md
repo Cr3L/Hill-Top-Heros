@@ -32,8 +32,8 @@ stand*. Update both together, same as everywhere else in this file.
 | 2 | Version-mismatch UX | Open | Not started |
 | 3 | Visual confirmation (HP bars, flee prompt) | Blocked | Needs 2 units in a real match — only tested single-unit via practice mode so far |
 | 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
-| 3 | 16-color palette | Done | `HEAL_FX`/`HIT_FX`/`DIM`/`BORDER`/`SELECT`/`SPARE` slots drafted but not yet consumed by anything |
-| 3 | Hit/heal animation feedback | Open | Not started |
+| 3 | 16-color palette | Done | `DIM`/`BORDER`/`SELECT`/`SPARE` slots drafted but not yet consumed by anything |
+| 3 | Hit/heal animation feedback | Done | Directional flash (HIT_FX/HEAL_FX), confirmed on hardware; true multi-frame fade/shake still open |
 | 3 | Sound | Open | Blocked on checking whether the buzzer is even wired |
 | 3 | Match history | Open | Needs NVS persistence — first persistence this project would have |
 | 4 | Two-radio test | Done | Full match played to a verdict on real RF |
@@ -153,9 +153,16 @@ Safe to build without touching anything the test suite defends.
   selectable menu exists yet), `SPARE` (unclaimed). Wire more of these as
   the features that would use them get built, rather than forcing them in
   now with no real consumer.
-- **Animations or feedback on hit/heal/skill.** Currently a battle() redraw is
-  the only signal a turn resolved — no flash, no shake, no distinction between
-  "you got hit" and "nothing happened this turn" beyond reading the numbers.
+- ~~**Feedback on hit/heal.**~~ Landed: `drawCombatants()`'s existing
+  same-frame flash now uses `HIT_FX`/`HEAL_FX` (orange-red/cyan) instead of a
+  generic invert, so "you got hit" reads differently from "you were healed"
+  at a glance, not just from the numbers — confirmed on Unit 1 in practice
+  mode. Still open: a true timed animation (fade/shake over multiple frames)
+  — `main.cpp` has no per-frame ticking today (`loop()` only redraws
+  reactively on Session's `battle()` callback), and building one was ruled
+  out of scope for this pass. Skill-specific feedback (as opposed to a
+  generic hit/heal) also not attempted — nothing in `BattleState` currently
+  distinguishes "how" damage/healing happened, only the resulting numbers.
 - **Sound.** Unexplored entirely — unclear if the Cardputer ADV's buzzer (if
   any) is even wired in `platformio.ini`'s lib set. Needs a hardware check
   before it's schedulable.
