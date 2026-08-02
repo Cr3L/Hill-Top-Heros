@@ -159,7 +159,20 @@ struct CardputerUi : SessionUi {
       // it's which side ended up challenging vs. accepting (informational —
       // nobody chooses it any more). LS_IDLE has neither. Same corner-tag
       // pattern as the version number.
-      if (ui.s && ui.s->state() != LS_IDLE) {
+      //
+      // Suppressed for the duration of a turn, because this corner is not
+      // actually free on every screen and the battle screen is the one that
+      // needs it: its content runs to row 131 (see the height budget in
+      // drawCombatants()) and a bottom_left tag occupies 127-134, so drawing
+      // it there opaquely cut the bottom off "5)Flee - FORFEITS". Dropping the
+      // tag costs nothing mid-match — which side challenged is the least
+      // useful thing on screen once the match is running — where finding 8px
+      // in a layout with 3px of slack would have cost real information. The
+      // version stamp above stays: it is bottom_right, clear of the menu, and
+      // it is the number that decides whether two units can pair at all.
+      const bool midTurn = ui.s && (ui.s->state() == LS_MY_TURN ||
+                                    ui.s->state() == LS_WAIT_PEER);
+      if (ui.s && ui.s->state() != LS_IDLE && !midTurn) {
         g.setTextDatum(textdatum_t::bottom_left);
         g.drawString(ui.s->state() == LS_SCANNING ? "OPEN"
                      : ui.s->isHost()             ? "HOST"
@@ -412,9 +425,14 @@ struct CardputerUi : SessionUi {
   //
   // Height budget on a 135px panel at kBodyTextSize (12px/line): 12 turn
   // banner + 2 * (12 name line + 14 hp bar + 10 mp bar) + 12 delta line +
-  // 3 * 12 footer = 132px. 3px of slack. The hp/mp numbers used to be text
-  // on the name line; moving them into the bars is what bought this room
-  // back after the HP bar's height was doubled.
+  // 3 * 12 footer = 132px, ending at row 131. 3px of slack. The hp/mp numbers
+  // used to be text on the name line; moving them into the bars is what
+  // bought this room back after the HP bar's height was doubled.
+  //
+  // That 132 counts content only. Frame's dtor also draws corner tags at
+  // rows 127-134, which overlaps the last footer line — so this screen is
+  // over budget, not under it, and the tag is suppressed mid-turn rather than
+  // the layout shrunk. Anything added here has to fit above row 127, not 135.
   void drawCombatants(Frame& d, const BattleState& b, int me, const char* meLabel) {
     for (int i = 0; i < 2; i++) {
       // Flash the row whose HP moved since the last draw — orange-red for

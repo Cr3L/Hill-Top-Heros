@@ -198,14 +198,17 @@ Safe to build without touching anything the test suite defends.
   means re-cutting that budget: a shorter format (`100` over `100/100`), or
   moving the numbers back out to the name line now that it is no longer
   carrying them. Not attempted — it is a layout rework, not a tweak.
-- **The corner tag overdraws the flee line in a real match.** Found by review,
-  not yet seen on hardware, and invisible in practice mode — which is why it
-  has survived: practice runs at `LS_IDLE`, and the bottom-left tag only draws
-  once paired. In `LS_MY_TURN` the footer's third line occupies rows 120-131
-  and `Frame::~Frame()` puts the bottom-left `OPEN`/`HOST`/`JOIN` tag at rows
-  127-134, opaque, so the bottom five rows of `5)Flee - FORFEITS` are cut off
-  with the tag sitting on top. The height budget in `drawCombatants()` counts
-  132 of 135 pixels and never accounted for the corner tags at all.
+- ~~**The corner tag overdraws the flee line in a real match.**~~ Fixed: found
+  by review, invisible in practice mode (which runs at `LS_IDLE`, where the
+  bottom-left tag is not drawn), so it had survived every playtest. In
+  `LS_MY_TURN` the footer's third line occupies rows 120-131 while
+  `Frame::~Frame()` drew the `HOST`/`JOIN` tag opaquely at rows 127-134,
+  cutting the bottom off `5)Flee - FORFEITS`. The tag is now suppressed for
+  the duration of a turn rather than the layout shrunk — which side challenged
+  is the least useful thing on screen mid-match, and finding 8px in a layout
+  with 3px of slack would have cost real information. The budget comment in
+  `drawCombatants()` now states that it counts content only and that the real
+  ceiling is row 127, not 135.
 - **The class-select lines wrap mid-word.** 240px at 9px/glyph is 26 characters
   (`kPanelW`), and three of the four blurb lines are 30-33, so LovyanGFX wraps
   them per character: the menu renders as seven ragged rows rather than four,
