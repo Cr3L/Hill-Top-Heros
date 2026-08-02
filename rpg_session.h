@@ -60,6 +60,7 @@ struct SeenEntry { uint32_t src; uint16_t seq; };
 struct Sighting {
   uint32_t hostId     = 0;
   uint8_t  commit[8]  = {0};
+  char     name[PLAYER_NAME_MAX + 1] = {0};   // empty if that peer hasn't set one
   int16_t  rssi       = 0;
   uint32_t lastSeenAt = 0;
 };
@@ -106,6 +107,13 @@ class Session {
   // id must be non-zero (0 is the broadcast address). seed is this device's
   // half of the battle seed and must come from a real entropy source.
   void begin(uint32_t id, uint32_t seed);
+  // This device's display name, as it appears in other players' nearby lists.
+  // Truncated to PLAYER_NAME_MAX; an empty name is legal and means "show my id
+  // instead", which is what every peer did before names existed. Survives
+  // rematch() — it identifies the device, not the match.
+  void setName(const char* name);
+  const char* myName()   const { return myName_; }
+  const char* peerName() const { return peerName_; }
   void rematch(uint32_t seed);         // back to LS_IDLE, keeps the same id
   // Rematch, then immediately re-open with the same class rather than
   // waiting at the menu for a fresh pick — the fast path off LS_OVER's "r"
@@ -128,8 +136,9 @@ class Session {
   void joinSighting(uint32_t hostId);
   size_t          sightingCount() const { return sightingCount_; }
   const Sighting& sighting(size_t i) const { return sightings_[i]; }
-  // Bumped whenever a sighting is added or expires (not on an in-place RSSI
-  // refresh) — lets a UI redraw only when the visible list actually changed,
+  // Bumped whenever a sighting is added, expires, or is renamed — i.e. when
+  // what's on screen changed, and not on an in-place RSSI refresh, which does
+  // not show. Lets a UI redraw only when the visible list actually changed,
   // instead of repainting an idle-heavy screen on a fixed timer.
   uint32_t        sightingsVersion() const { return sightingsVersion_; }
 
@@ -168,7 +177,8 @@ class Session {
   void     pumpWatchdog();
   void     pumpBeacon();
   void     pumpScanExpiry();
-  void     recordSighting(uint32_t hostId, const uint8_t* commit, int16_t rssi);
+  void     recordSighting(uint32_t hostId, const uint8_t* commit,
+                          const char* name, int16_t rssi);
   void     pumpResolve();
   void     pumpMoveTimer();
   // My own seat's outcome right now: STATUS_UNKNOWN until battleStarted_ and
@@ -194,6 +204,8 @@ class Session {
   bool      isHost_ = false;
   uint32_t  mySeed_ = 0, peerSeed_ = 0;
   uint8_t   myClassId_ = 0, peerClassId_ = 0;  // player-chosen, rides the handshake
+  char      myName_[PLAYER_NAME_MAX + 1]   = {0};
+  char      peerName_[PLAYER_NAME_MAX + 1] = {0};     // learned from the handshake
   uint8_t   peerCommit_[8] = {0};      // from the beacon, checked at reveal
   uint16_t  txSeq_ = 1;
 

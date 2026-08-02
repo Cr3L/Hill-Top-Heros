@@ -30,7 +30,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 2 | Rejoin after "peer unreachable" | Done | LS_LINGER + PKT_STATUS landed (sim-verified); both-sides-stuck sub-case deferred (livelock risk); real hardware disconnect test still open |
 | 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
 | 2 | Peer discovery / symmetric presence | Done | Host/join roles retired: one `LS_SCANNING` "open" state beacons *and* listens. Pick a player off the list to challenge; either side can initiate. Confirmed on hardware |
-| 2 | Player identity (name entry) | Open | Now the top gap in discovery — the nearby list shows a hex id, which can't distinguish two friends. Needs a `Packet` field + `PROTO_VERSION` bump |
+| 2 | Player identity (name entry) | Done | `PROTO_VERSION` 5→6, still 38 bytes — `name[7]` shares the pre-CRC bytes with turn/action/stateHash. Nearby list shows names; hex id is the fall-back. Wire names are sanitized on receive; names are cosmetic, not authenticated. Not persisted, not on the battle screen. Unverified on hardware |
 | 2 | Version-mismatch UX | Open | Not started |
 | 3 | Visual confirmation (HP bars, flee prompt) | Done | HP/MP bars, hit/heal flash, and pairing confirmed in a real 2-unit match; flee prompt itself not exercised this run |
 | 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
@@ -119,9 +119,51 @@ The protocol works; the experience around it is minimal.
   radios in range. No discovery UX for "which of three nearby hosts do I
   join," no room codes, nothing yet needs it since two units is the only
   configuration ever tested.
-- **Player identity.** `deviceId()` is a MAC-derived number; there's no name
-  entry, so both screens show generic class names, not player names. Small,
-  but it's the first thing a second player will ask about.
+- ~~**Player identity.**~~ Landed: `PROTO_VERSION` 5→6 for a 6-character
+  player name, entered on its own `N` screen off the idle menu and shown in
+  the nearby-players list in place of the hex id. The packet did **not** grow
+  — it was at 38 of its 40-byte airtime ceiling, so `name[7]` shares the last
+  seven bytes before the CRC with `turn`/`action`/`stateHash` in a union, and
+  `classId` moved up beside `commit` to make that run contiguous. That is only
+  sound because the two arms are used by disjoint packet types (handshake vs.
+  sim), which is a rule the compiler cannot enforce: `testNameSharesTheSimBytes`
+  in the link suite pins the overlap and the surviving fields, and the union's
+  own comment states which types may write which arm. Sim-verified across four
+  new session tests (beacon → sighting, both handshake seats, truncation and
+  rematch survival, rename-bumps-the-list-version). Two pieces deliberately not
+  built:
+  - **The name does not survive a power cycle.** It lives in RAM only, so a
+    reboot drops back to the hex id. Persisting it is the same NVS /
+    `Preferences.h` work already flagged under *Match history* and the
+    breadcrumb idea in group 5 — worth landing all three together rather than
+    three times.
+  - **The name is not on the battle screen.** `drawCombatants()` is at its
+    real ceiling of row 127 (see the HP-number entry in group 3), so putting a
+    name beside the class there is part of that same budget rework, not a
+    line to add.
+
+  Two things a security pass over the change surfaced, one fixed and one not:
+
+  - **Received names are sanitized; that is not optional.** A name arrives
+    over an unauthenticated broadcast link, so any radio in range can put
+    arbitrary bytes in that field and compute a valid CRC — `packetValid()`
+    stops accidental corruption, not a hostile sender. `copyWireName()` is the
+    single choke point every stored peer name goes through, and it forces both
+    a terminator (the field is 7 raw bytes with no guaranteed NUL) and the
+    same printable range the local name entry accepts. Covered by
+    `testHostileNameIsSanitized`. Note the coupling this creates, since it is
+    easy to "simplify" back out: the rename check in `recordSighting()` must
+    compare *sanitized against sanitized*, or a peer whose name contains one
+    unprintable byte differs from its own stored copy on every beacon and
+    repaints the nearby list forever.
+  - **A peer can still display any name it likes, including one that mimics
+    another player's.** Names are cosmetic and are deliberately not bound to
+    identity: pairing keys on `hostId`, and the name is never hashed into
+    `seedCommit()` or `battleHash()`, so this buys no leverage over the shared
+    seed. Making a name trustworthy means authenticating the link, which this
+    project does not do and has never claimed to — worth stating plainly here
+    rather than leaving someone to assume the name in the list is proof of who
+    they are challenging.
 - **Version-mismatch UX.** A `PROTO_VERSION` bump silently fails to pair
   (`BYE_BAD_COMMIT` territory) rather than reporting "peer is running a
   different version." Matters more as this gets updated on two units

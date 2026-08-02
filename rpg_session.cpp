@@ -25,6 +25,40 @@ static const char* outcomeMsg(StatusOutcome o) {
   }
 }
 
+// ----------------------------------------------------------------- identity
+
+// Reads a name off the wire, and the only place that does — everything that
+// stores a peer name goes through here, so this is where a received name gets
+// made safe to hold and to draw.
+//
+// Nothing about an incoming packet is trustworthy: the link is unauthenticated
+// broadcast, so any radio in range can put arbitrary bytes in this field with a
+// valid CRC. Two things are therefore forced rather than assumed:
+//
+//   - The terminator. The field is 7 raw bytes and a hostile sender can fill
+//     every one of them. Costs the 7th character, which no honest sender uses
+//     — setName() caps what goes out at PLAYER_NAME_MAX.
+//   - Printability. Same range the local name entry in main.cpp accepts, so a
+//     name off the air can't render as something a typed one couldn't be.
+//     Control bytes would otherwise reach the panel as garbage glyphs.
+//
+// Stops at the first NUL, so a name is a C string in the ordinary sense and
+// bytes hidden past a terminator are dropped rather than stored.
+static void copyWireName(char (&dst)[PLAYER_NAME_MAX + 1], const char* wire) {
+  memset(dst, 0, sizeof(dst));
+  for (size_t i = 0; i < PLAYER_NAME_MAX && wire[i]; i++)
+    dst[i] = (wire[i] >= ' ' && wire[i] <= '~') ? wire[i] : '?';
+}
+
+// Zero-filled first, not just terminated: txPacket() copies the whole field
+// onto the wire, so a shorter name replacing a longer one would otherwise
+// transmit the old tail past the terminator. Harmless to display, but it puts
+// a stale name on the air and gives two identical names different CRCs.
+void Session::setName(const char* name) {
+  memset(myName_, 0, sizeof(myName_));
+  if (name) memcpy(myName_, name, strnlen(name, PLAYER_NAME_MAX));
+}
+
 // ------------------------------------------------------------------ lifecycle
 
 // Everything that belongs to one match, in one place. The header's member
@@ -36,6 +70,9 @@ void Session::resetMatchState() {
   isHost_   = false;
   peerSeed_ = 0;
   peerClassId_ = 0;
+  // myName_ is deliberately absent: like myClassId_ it belongs to the device,
+  // not the match, so it survives rematch() and a player names themself once.
+  memset(peerName_, 0, sizeof(peerName_));
   memset(peerCommit_, 0, sizeof(peerCommit_));
   txSeq_    = 1;
   memset(seen_, 0, sizeof(seen_));
@@ -102,6 +139,10 @@ void Session::joinSighting(uint32_t hostId) {
   peerId_    = sg->hostId;
   isHost_    = false;
   memcpy(peerCommit_, sg->commit, sizeof(peerCommit_));
+  // Already known from the beacon that produced this sighting, so the peer has
+  // a name here before its JOIN_ACK arrives — which is what lets the
+  // "challenging..." screen name who is being challenged.
+  copyWireName(peerName_, sg->name);
   sightingCount_ = 0;
   // The handshake watchdog measures silence from the peer, and it starts
   // counting now — not from whenever this device went open. A player can sit
@@ -130,6 +171,13 @@ uint32_t Session::nextRetryDelay() {
 
 void Session::txPacket(Packet& p, bool wantAck, uint8_t protoAck) {
   p.src = myId_;
+  // Stamped here alongside src for the same reason — it is who we are, not
+  // part of any one message — and, more importantly, so the list of packet
+  // types allowed to write the name arm of Packet's union exists once, in
+  // code, instead of at each construction site under a comment. A new
+  // handshake packet that should carry a name is added here.
+  if (p.type == PKT_BEACON || p.type == PKT_JOIN_REQ || p.type == PKT_JOIN_ACK)
+    memcpy(p.name, myName_, sizeof(p.name));
   p.seq = txSeq_++;
   if (p.seq == 0) p.seq = txSeq_++;    // seq 0 means "none" in ackSeq
   packetSeal(p);
@@ -247,7 +295,7 @@ void Session::handlePacket(const Packet& p, int16_t rssi) {
   // Everything else (notably an incoming PKT_JOIN_REQ, i.e. someone else
   // picking US off their list) falls through and is handled normally.
   if (state_ == LS_SCANNING && p.type == PKT_BEACON) {
-    recordSighting(p.src, p.commit, rssi);
+    recordSighting(p.src, p.commit, p.name, rssi);
     return;
   }
 
@@ -301,6 +349,7 @@ void Session::handlePacket(const Packet& p, int16_t rssi) {
         isHost_   = true;
         peerSeed_ = p.seedHalf;
         peerClassId_ = p.classId;
+        copyWireName(peerName_, p.name);
         sightingCount_ = 0;            // no longer relevant once paired
         lastRxAt_ = clk_.now();        // watchdog starts here, not at open
 
@@ -321,6 +370,10 @@ void Session::handlePacket(const Packet& p, int16_t rssi) {
         }
         peerSeed_ = p.seedHalf;
         peerClassId_ = p.classId;
+        // Overwrites what joinSighting() copied from the beacon: same peer,
+        // but this is the fresher of the two and the only one an accepting
+        // peer ever gets.
+        copyWireName(peerName_, p.name);
         battleInit(b_, mySeed_ ^ peerSeed_, hostClassId(), joinerClassId());
         battleStarted_ = true;
         sendReady();
@@ -557,12 +610,31 @@ void Session::pumpBeacon() {
   txPacket(b, false);
 }
 
-void Session::recordSighting(uint32_t hostId, const uint8_t* commit, int16_t rssi) {
+void Session::recordSighting(uint32_t hostId, const uint8_t* commit,
+                             const char* name, int16_t rssi) {
   for (size_t i = 0; i < sightingCount_; i++) {
     if (sightings_[i].hostId == hostId) {
       sightings_[i].rssi       = rssi;
       sightings_[i].lastSeenAt = clk_.now();
       memcpy(sightings_[i].commit, commit, sizeof(sightings_[i].commit));
+      // Refreshed rather than kept: a player who renames themself while open
+      // should show up renamed, without having to drop out of the list first.
+      // Unlike the RSSI refresh above this changes what's on screen, so it
+      // bumps the version — but only when the name really moved, or an idle
+      // list would repaint on every beacon.
+      //
+      // The comparison has to be sanitized-against-sanitized, which is what
+      // the temporary is for. Comparing the stored name directly against the
+      // wire bytes looks equivalent and isn't: copyWireName() rewrites
+      // anything unprintable, so a peer whose name contains one such byte
+      // would differ from its own stored copy on every single beacon and
+      // repaint the list forever.
+      char fresh[PLAYER_NAME_MAX + 1];
+      copyWireName(fresh, name);
+      if (strcmp(sightings_[i].name, fresh) != 0) {
+        memcpy(sightings_[i].name, fresh, sizeof(fresh));
+        sightingsVersion_++;
+      }
       return;
     }
   }
@@ -572,6 +644,7 @@ void Session::recordSighting(uint32_t hostId, const uint8_t* commit, int16_t rss
   sg.rssi       = rssi;
   sg.lastSeenAt = clk_.now();
   memcpy(sg.commit, commit, sizeof(sg.commit));
+  copyWireName(sg.name, name);
   sightingsVersion_++;
 }
 

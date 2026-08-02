@@ -35,6 +35,44 @@ static void testPacketLayout() {
   CHECK(offsetof(Packet, crc) == sizeof(Packet) - sizeof(uint16_t));
 }
 
+// The name field shares its bytes with turn/action/stateHash (see the union in
+// rpg_link.h), which is only safe because no packet type carries both. This
+// pins the two properties that safety rests on: the arms really do overlap,
+// and nothing outside the union moves when a name is written.
+//
+// What it deliberately does NOT prove is the rule itself — that a given packet
+// type only ever writes one arm. Offsets stay correct through exactly that
+// bug. Session::txPacket() is where that rule is enforced, by enumerating the
+// types allowed to carry a name.
+static void testNameSharesTheSimBytes() {
+  printf("name field overlays the sim fields, and nothing else\n");
+  CHECK(offsetof(Packet, name) == offsetof(Packet, turn));
+  // classId was moved out of that run precisely so it could ride the same
+  // JOIN packets a name does. If this fails they are aliased and the class
+  // silently becomes a character of the name.
+  CHECK(offsetof(Packet, classId) < offsetof(Packet, name));
+
+  Packet p{};
+  p.type = PKT_JOIN_REQ; p.src = 9; p.dst = 4; p.seedHalf = 0xDEADBEEF;
+  p.classId = 3;
+  memcpy(p.commit, "12345678", 8);
+  memcpy(p.name, "ANNIE", 6);
+
+  CHECK(p.classId == 3);
+  CHECK(memcmp(p.commit, "12345678", 8) == 0);
+  CHECK(p.seedHalf == 0xDEADBEEF);
+  // A name is a real name after a round trip through the CRC, not a turn.
+  packetSeal(p);
+  CHECK(packetValid(p));
+  CHECK(strcmp(p.name, "ANNIE") == 0);
+
+  // The overlap is the point, so assert it rather than leaving it implied: a
+  // sim packet's turn number reads back as garbage in the name arm.
+  Packet a{};
+  a.type = PKT_ACTION; a.turn = 0x4141; a.action = ACT_ATTACK;
+  CHECK(a.name[0] == 'A');
+}
+
 static void testSealAndValidate() {
   printf("seal / validate\n");
   Packet p{};
@@ -497,6 +535,7 @@ static void testActionValidation() {
 
 int main() {
   testPacketLayout();
+  testNameSharesTheSimBytes();
   testSealAndValidate();
   testVersionMismatch();
   testSeedCommit();

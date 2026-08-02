@@ -724,6 +724,133 @@ static void testScanCancelLeavesCleanState() {
   CHECK(r.join.peerId() == 0);
 }
 
+// ------------------------------------------------------------- player names
+
+static void testNameRidesTheBeacon() {
+  printf("names: a beacon carries the sender's name into the nearby list\n");
+  Rig r;
+  r.begin(21);
+  r.host.setName("ANNIE");
+  r.autoPair = false;
+
+  r.run(5000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() == 1, "expected 1 sighting, got %zu",
+         r.join.sightingCount());
+  CHECKM(strcmp(r.join.sighting(0).name, "ANNIE") == 0,
+         "sighting name '%s' != 'ANNIE'", r.join.sighting(0).name);
+  // The other direction is unnamed and must stay legibly empty rather than
+  // picking up stray bytes off the wire — that empty string is what the UI
+  // keys its fall-back-to-hex-id on.
+  CHECKM(r.host.sighting(0).name[0] == '\0', "unnamed peer read back as '%s'",
+         r.host.sighting(0).name);
+}
+
+static void testNameSurvivesTheHandshake() {
+  printf("names: both peers learn each other's name by the time they pair\n");
+  Rig r;
+  r.begin(22);
+  r.host.setName("ANNIE");
+  r.join.setName("BOWIE");
+
+  r.run(20000, /*autoPlay=*/true);
+  CHECKM(r.paired() || r.host.battle().turn > 0, "peers never paired");
+  // The accepting side learns it from PKT_JOIN_REQ, the challenging side from
+  // PKT_JOIN_ACK — two different code paths, so check both seats.
+  CHECKM(strcmp(r.host.peerName(), "BOWIE") == 0,
+         "host sees peer as '%s', want 'BOWIE'", r.host.peerName());
+  CHECKM(strcmp(r.join.peerName(), "ANNIE") == 0,
+         "join sees peer as '%s', want 'ANNIE'", r.join.peerName());
+}
+
+static void testNameIsTruncatedAndPersists() {
+  printf("names: over-long names are truncated, and a name outlives a match\n");
+  Rig r;
+  r.ch.reset(23);
+  r.host.begin(0x1001, 0xAAAA1111);
+
+  r.host.setName("LONGNAMEHERE");
+  CHECKM(strlen(r.host.myName()) == PLAYER_NAME_MAX, "kept %zu chars, want %zu",
+         strlen(r.host.myName()), PLAYER_NAME_MAX);
+  CHECKM(strcmp(r.host.myName(), "LONGNA") == 0, "truncated to '%s'",
+         r.host.myName());
+
+  // A name identifies the device, not the match, so rematch() must not clear
+  // it — otherwise "r" off the verdict screen drops a player back to a hex id.
+  r.host.rematch(0xCCCC3333);
+  CHECKM(strcmp(r.host.myName(), "LONGNA") == 0,
+         "rematch cleared the name to '%s'", r.host.myName());
+
+  r.host.setName("");
+  CHECK(r.host.myName()[0] == '\0');
+}
+
+static void testRenameRedrawsTheList() {
+  printf("names: a rename bumps the list version, a steady name does not\n");
+  Rig r;
+  r.begin(24);
+  r.host.setName("ANNIE");
+  r.autoPair = false;
+
+  r.run(5000, /*autoPlay=*/false);
+  const uint32_t settled = r.join.sightingsVersion();
+  // Several more beacons of the same name: the row on screen is unchanged, so
+  // nothing should ask the UI to repaint.
+  r.run(6000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingsVersion() == settled,
+         "steady name bumped the version %u -> %u", settled,
+         r.join.sightingsVersion());
+
+  r.host.setName("ANNE");
+  r.run(6000, /*autoPlay=*/false);
+  CHECKM(strcmp(r.join.sighting(0).name, "ANNE") == 0,
+         "rename not picked up, still '%s'", r.join.sighting(0).name);
+  CHECKM(r.join.sightingsVersion() > settled,
+         "rename did not bump the version (%u)", r.join.sightingsVersion());
+}
+
+// A name arrives over an unauthenticated broadcast link, so it is attacker-
+// controlled: any radio in range can put arbitrary bytes in that field and
+// compute a valid CRC. Rewriting the beacon in flight is the closest the sim
+// gets to a hostile peer. Nothing here is a memory-safety test — the buffers
+// are fixed-size and bounded either way — it pins that what reaches the screen
+// is drawn from the same character set a locally typed name is.
+static void testHostileNameIsSanitized() {
+  printf("names: unprintable bytes from the wire are made safe\n");
+  Rig r;
+  r.begin(25);
+  r.autoPair = false;
+  r.ch.filter = [](Packet& p, int from) {
+    if (p.type == PKT_BEACON && from == 0) {
+      // Control bytes, a high byte, and no terminator anywhere in the field.
+      const char hostile[7] = {'A', 0x01, 0x1B, (char)0xFF, '\n', 'Z', 'X'};
+      memcpy(p.name, hostile, sizeof(p.name));
+      packetSeal(p);                     // a hostile peer would send valid CRC
+    }
+    return true;
+  };
+
+  r.run(5000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() == 1, "expected 1 sighting, got %zu",
+         r.join.sightingCount());
+  const char* got = r.join.sighting(0).name;
+  // Terminated despite the wire field having no NUL in it at all, and every
+  // byte printable. The 7th character is the one the terminator costs.
+  CHECKM(strlen(got) == PLAYER_NAME_MAX, "length %zu, want %zu", strlen(got),
+         PLAYER_NAME_MAX);
+  CHECKM(strcmp(got, "A???\?Z") == 0, "sanitized to '%s'", got);
+  for (size_t i = 0; i < strlen(got); i++)
+    CHECKM(got[i] >= ' ' && got[i] <= '~', "byte %zu is 0x%02X", i,
+           (unsigned char)got[i]);
+
+  // And it must settle: a hostile name that sanitizes to the same string every
+  // time is not a rename, so it must not repaint the list on every beacon.
+  const uint32_t settled = r.join.sightingsVersion();
+  r.run(6000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingsVersion() == settled,
+         "sanitized name kept bumping the version %u -> %u", settled,
+         r.join.sightingsVersion());
+}
+
 // --------------------------------------------------------- move timer
 
 // Found on real hardware: nobody presses a key, so this exercises
@@ -766,6 +893,11 @@ int main() {
   testJoinSightingPairs();
   testJoinSightingExpiredIsNoOp();
   testScanCancelLeavesCleanState();
+  testNameRidesTheBeacon();
+  testNameSurvivesTheHandshake();
+  testNameIsTruncatedAndPersists();
+  testRenameRedrawsTheList();
+  testHostileNameIsSanitized();
 
   return testSummary("all session tests passed");
 }

@@ -24,7 +24,12 @@ static const uint16_t PROTO_MAGIC   = 0x5247;  // 'RG'
 //   5: classId added to Packet (37 -> 38 bytes), rides PKT_JOIN_REQ/
 //      PKT_JOIN_ACK. Both a layout change and a sim-rule change: class is now
 //      player-chosen instead of seed-derived.
-static const uint8_t  PROTO_VERSION = 5;
+//   6: player names. Still 38 bytes — `name[7]` shares the last 7 bytes before
+//      the CRC with turn/action/stateHash (see the union in Packet), and
+//      classId moved up beside `commit` to make that run contiguous. Nothing
+//      grew, but every field after `commit` sits at a new offset, so a v5 peer
+//      would read a name as a turn number.
+static const uint8_t  PROTO_VERSION = 6;
 
 enum PktType : uint8_t {
   PKT_BEACON   = 0x01,  // "I'm open for a duel" + commitment to my seed half
@@ -61,6 +66,12 @@ enum StatusOutcome : uint8_t {
   STATUS_UNKNOWN
 };
 
+// Longest display name that fits the shared field in Packet below, leaving
+// room for a terminator so it can be read as a C string. Buffers holding one
+// need PLAYER_NAME_MAX + 1 bytes. Raising it grows the union arm and so the
+// packet, which the size assert below will catch.
+static const size_t PLAYER_NAME_MAX = 6;
+
 struct __attribute__((packed)) Packet {
   uint16_t magic;
   uint8_t  version;
@@ -71,15 +82,32 @@ struct __attribute__((packed)) Packet {
   uint16_t ackSeq;     // seq being acknowledged, 0 if none
   uint32_t seedHalf;   // handshake reveal (JOIN_REQ / JOIN_ACK)
   uint8_t  commit[8];  // handshake commitment (BEACON only)
-  uint16_t turn;       // which turn this action belongs to
-  uint8_t  action;     // ActionId, or ByeReason on PKT_BYE
   uint8_t  classId;    // sender's chosen class (PKT_JOIN_REQ / PKT_JOIN_ACK)
-  uint32_t stateHash;  // sender's pre-turn hash, i.e. post-turn hash of turn-1
+  // The last 7 bytes before the CRC are shared, because the packet is at 38 of
+  // its 40-byte airtime budget and a name would not otherwise fit. The two arms
+  // are used by disjoint packet types and there is no discriminant beyond
+  // `type` itself, so the split is only safe as long as that stays true:
+  //
+  //   sim  — PKT_ACTION, PKT_STATUS.               Never carry a name.
+  //   name — PKT_BEACON, PKT_JOIN_REQ, PKT_JOIN_ACK. Never carry turn state.
+  //
+  // Adding a name to a sim packet, or turn state to a handshake packet, is a
+  // silent misparse, not a build error. Put a new field outside this union
+  // unless it genuinely belongs to one of those two disjoint sets.
+  union {
+    struct __attribute__((packed)) {
+      uint16_t turn;       // which turn this action belongs to
+      uint8_t  action;     // ActionId, ByeReason on PKT_BYE, StatusOutcome on PKT_STATUS
+      uint32_t stateHash;  // sender's pre-turn hash, i.e. post-turn hash of turn-1
+    };
+    char name[PLAYER_NAME_MAX + 1];   // sender's display name, zero-padded
+  };
   uint16_t crc;        // over all preceding bytes — MUST stay the last member
 };
 
 // Wire layout is frozen per PROTO_VERSION. If this fires, you changed the
-// packet: bump PROTO_VERSION above and update this size to match.
+// packet: bump PROTO_VERSION above and update this size to match. This also
+// covers the union above: a wider name arm widens the union, and lands here.
 static_assert(sizeof(Packet) == 38, "Packet layout changed - bump PROTO_VERSION");
 static_assert(sizeof(Packet) <= 40, "Packet too large for the airtime budget");
 

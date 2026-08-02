@@ -212,6 +212,10 @@ struct CardputerUi : SessionUi {
       d->setCursor(0, kMenuTop);
       d->println("O=open - find players");
       d->println("P=practice (1 player)");
+      // Shows the name back rather than just offering the key: this is the
+      // only screen that says who this device is to everyone else, and an
+      // unnamed device needs to be told it will show up as a hex id.
+      if (s) d->printf("N=name - %s\n", s->myName()[0] ? s->myName() : "not set");
       // Boot diagnostics are chrome, not content — they matter once, on the
       // first boot after a flash, and never again.
       if (note) {
@@ -507,6 +511,24 @@ struct CardputerUi : SessionUi {
 
   void log(const char* msg) override { Serial.println(msg); }
 
+  // Name entry. Deliberately its own screen rather than a step bolted onto
+  // classSelect(): a class is picked before every match, a name is typed once
+  // and then never again, so pairing them would put a keyboard prompt in front
+  // of a player who just wants to fight. `buf` is the caller's live edit
+  // buffer, not the Session's name — nothing is committed until Enter.
+  void nameEntry(const char* buf) {
+    Frame d(*this);
+    heading(d.g, "YOUR NAME");
+    // A caret, so an empty buffer still looks like something you can type into
+    // rather than a screen that failed to draw.
+    d->printf("%s_\n", buf);
+    d->println("");
+    char limit[32];
+    snprintf(limit, sizeof(limit), "%u letters max", (unsigned)PLAYER_NAME_MAX);
+    hint(d.g, limit);
+    hint(d.g, "ENTER=save  DEL=erase");
+  }
+
   // Pre-match class pick. Position-only reference is tools/designs/
   // character_select.json — that mockup previews at text-size-1 while this
   // screen renders at kBodyTextSize like everything else (see CLAUDE.md's
@@ -551,8 +573,14 @@ struct CardputerUi : SessionUi {
     } else {
       for (size_t i = 0; i < s->sightingCount(); i++) {
         const Sighting& sg = s->sighting(i);
-        d->printf("%u) %04X - %s\n", (unsigned)(i + 1),
-                  (unsigned)(sg.hostId & 0xFFFF), rssiBucket(sg.rssi));
+        // The hex id is the fall-back, not the label: it's what this list
+        // showed before names existed, and it's still all a peer running an
+        // unnamed device gives us. Two unnamed friends remain indistinguishable
+        // — that's the case names are here to fix, not one to paper over.
+        char hex[8];
+        snprintf(hex, sizeof(hex), "%04X", (unsigned)(sg.hostId & 0xFFFF));
+        d->printf("%u) %s - %s\n", (unsigned)(i + 1),
+                  sg.name[0] ? sg.name : hex, rssiBucket(sg.rssi));
       }
     }
     hint(d.g, "Q=cancel");
@@ -608,6 +636,13 @@ static Rng gPracticeBotRng;
 // the classId it ends with (see Session::onKey's LS_IDLE comment).
 enum PendingAction { PA_NONE, PA_OPEN, PA_PRACTICE };
 static PendingAction gPendingAction = PA_NONE;
+
+// Name entry's live edit buffer. Lives here rather than in Session because
+// nothing is committed until Enter — Session only ever sees a finished name.
+// gNameEditing doubles as "which screen is on the panel", the same way
+// gPendingAction does for the class pick.
+static bool gNameEditing = false;
+static char gNameBuf[PLAYER_NAME_MAX + 1] = {0};
 // LS_SCANNING has no per-keypress redraw to piggyback on — sightings arrive
 // on their own schedule — so the list is redrawn when Session::sightingsVersion()
 // changes rather than on a fixed timer, to skip repainting an unchanged screen.
@@ -689,6 +724,40 @@ void loop() {
 
   if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
     auto ks = M5Cardputer.Keyboard.keysState();
+
+    // Name entry consumes the whole keypress rather than one character of it,
+    // and so cannot be folded into the loop below: Enter and Del arrive as
+    // flags on KeysState, not as entries in `word`. It also has to come first,
+    // because every letter is a name character here — including the 'q' and
+    // 'o' that mean something everywhere else.
+    if (gNameEditing) {
+      if (ks.enter) {
+        gSession.setName(gNameBuf);
+        gNameEditing = false;
+        gUi.status("");                  // LS_IDLE redraws, name and all
+      } else {
+        const size_t was = strlen(gNameBuf);
+        size_t n = was;
+        if (ks.del) {
+          if (n) gNameBuf[--n] = '\0';
+        } else {
+          // Printable only: the panel can't draw anything else, and a name is
+          // going to be read off someone else's screen.
+          for (auto c : ks.word) {
+            if (n >= PLAYER_NAME_MAX || c < ' ' || c > '~') break;
+            gNameBuf[n++] = c;
+            gNameBuf[n] = '\0';
+          }
+        }
+        // Only if the buffer actually moved. A redraw is a full-screen
+        // composite and push, and plenty of keypresses here change nothing:
+        // Del on an empty name, any letter once it is full, and every
+        // modifier or arrow key, which carry no `word` at all.
+        if (n != was) gUi.nameEntry(gNameBuf);
+      }
+      return;
+    }
+
     for (auto c : ks.word) {
       if (gPracticeOn) {
         int winner = battleWinner(gPracticeBattle);
@@ -737,6 +806,13 @@ void loop() {
         } else if (c == 'q') {
           gSession.rematch(esp_random());   // back to the menu
         }
+      } else if (gSession.state() == LS_IDLE && c == 'n') {
+        // Seeded from the committed name so re-entering edits it rather than
+        // starting over — the usual reason to come back here is a typo.
+        snprintf(gNameBuf, sizeof(gNameBuf), "%s", gSession.myName());
+        gNameEditing = true;
+        gUi.nameEntry(gNameBuf);
+        break;
       } else if (gSession.state() == LS_IDLE && (c == 'p' || c == 'o')) {
         gPendingAction = c == 'p' ? PA_PRACTICE : PA_OPEN;
         gUi.classSelect();

@@ -4,7 +4,8 @@
     { "name": "FREE_MID",  "x": 0,   "y": 12,  "w": 240, "h": 40, "c": 0,     "fill": false, "mark": 16904, "type": "rect" },
     { "name": "MENU_OPEN", "x": 0,   "y": 52,  "w": 189, "h": 12, "c": 65535, "fill": false, "mark": 65535, "type": "text-box" },
     { "name": "MENU_PRAC", "x": 0,   "y": 64,  "w": 189, "h": 12, "c": 65535, "fill": false, "mark": 65535, "type": "text-box" },
-    { "name": "FREE_LOW",  "x": 0,   "y": 76,  "w": 240, "h": 36, "c": 0,     "fill": false, "mark": 16904, "type": "rect" },
+    { "name": "MENU_NAME", "x": 0,   "y": 76,  "w": 189, "h": 12, "c": 65535, "fill": false, "mark": 65535, "type": "text-box" },
+    { "name": "FREE_LOW",  "x": 0,   "y": 88,  "w": 240, "h": 24, "c": 0,     "fill": false, "mark": 16904, "type": "rect" },
     { "name": "NOTE",      "x": 0,   "y": 112, "w": 117, "h": 12, "c": 33808, "fill": false, "mark": 33808, "type": "text-box" },
     { "name": "TAG_VER",   "x": 228, "y": 127, "w": 12,  "h": 8,  "c": 33808, "fill": false, "mark": 33808, "type": "text-box" }
   ],
@@ -12,6 +13,7 @@
     { "text": "HILL-TOP HEROS",        "x": 57,  "y": 2,   "c": 2016  },
     { "text": "O=open - find players", "x": 0,   "y": 54,  "c": 65535 },
     { "text": "P=practice (1 player)", "x": 0,   "y": 66,  "c": 65535 },
+    { "text": "N=name - not set",      "x": 0,   "y": 78,  "c": 65535 },
     { "text": "radio=0 ioe=1",         "x": 0,   "y": 114, "c": 33808 },
     { "text": "v5",                    "x": 228, "y": 127, "c": 33808 }
   ],
