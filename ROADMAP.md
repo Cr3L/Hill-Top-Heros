@@ -41,6 +41,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 4 | Two-radio test | Done | Full match played to a verdict on real RF |
 | 4 | EU frequency + duty cycle | Open | Only urgent before a unit goes on air outside US/AU |
 | 4 | Power management | Open | Not started, untested |
+| 4 | OTA firmware updates | Open | WiFi OTA vs. LoRa OTA unresolved; intended as reusable beyond this project |
 | 5 | Radio-first mechanics (proximity/breadcrumb/intercept) | Open | Unscoped — needs a passive-scan design pass before any sub-idea is plan-ready |
 
 ## 1. Finish the combat loop (touches `rpg_link.*` — the tested core)
@@ -187,17 +188,38 @@ Safe to build without touching anything the test suite defends.
 ## 4. Radio / compliance (touches `main.cpp`, hardware-gated)
 
 - ~~The two-radio test itself.~~ Confirmed: host and joiner paired over actual
-  RF and played a full match to a verdict both sides agreed on. Unblocks the
-  items below that were waiting on it. Still open from here: real packet loss
-  / rejoin behavior at range or with interference — the split-verdict rate in
-  `test/test_session.cpp` is still simulation only, and everything on hardware
-  so far has been two units six inches apart with a clean channel.
+  RF and played a full match to a verdict both sides agreed on, first at six
+  inches, then a clean match at 40-50ft indoors with no dropped input and no
+  noticeable lag. Unblocks the items below that were waiting on it. Still open
+  from here: real packet loss / rejoin behavior at range or with interference
+  — the split-verdict rate in `test/test_session.cpp` is still simulation
+  only, and 40-50ft indoors is not a stress test of maximum range,
+  obstructions, or RF interference.
 - **EU frequency + duty cycle.** `RF_FREQ_MHZ` is hardcoded 915.0; `CLAUDE.md`
   already flags 868.0 + duty-cycle budget as unsettled. Only urgent if a unit
   is going on air outside US/AU.
 - **Power management.** No sleep/wake behavior explored; `startReceive()` runs
   continuously. Battery life on a handheld device is presumably a real
   constraint, untested.
+- **OTA firmware updates.** Today, updating a unit means USB + `pio run -t
+  upload`, which is fine for two units in one room but doesn't scale past
+  that. Two candidate paths, unresolved:
+  - **WiFi OTA** (`ArduinoOTA` / ESP `Update.h`, `--upload-protocol espota`) —
+    the well-trodden ESP32 path. Needs an OTA-capable partition table (two
+    app slots to flip between) and pulls in WiFi as a firmware dependency
+    this project has otherwise avoided; would only be live during an
+    explicit update mode, not during play, so it doesn't compromise the
+    "no server, no access point" pitch in `README.md` — just adds a second
+    radio stack to the build.
+  - **LoRa OTA** — push the firmware image over the same SX1262 link
+    already in use. Thematically consistent with the group-5 radio-first
+    direction, but LoRa's kbps-range bandwidth makes a multi-hundred-KB
+    image slow, and a dropped chunk mid-flash risks a bricked unit without
+    a real chunking/resume/integrity protocol. Bigger lift, own design pass.
+  - Explicitly asked for as **reusable infrastructure beyond this
+    project** — not scoped as Hill-Top-Heros-specific, so whichever path is
+    picked should stay separable from the game logic rather than getting
+    wired into `main.cpp` in a one-off way.
 
 ## 5. Radio-first mechanics (touches `rpg_session.*`, hardware-gated)
 

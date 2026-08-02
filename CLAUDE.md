@@ -239,9 +239,12 @@ mismatch there is `BYE_BAD_COMMIT` territory, and pairing succeeded instead.
 
 **A full match has been played to a verdict on hardware.** Host and joiner
 carried a real match through to `battleWinner()`, both agreeing on the result.
+
+**Range: a full match played clean at 40-50ft, no dropped input, no
+noticeable input lag.** Extends the earlier clean two-unit-at-6-inches run.
 Still not confirmed: recovery from a mid-match packet loss/rejoin — the
 split-verdict numbers in `test/test_session.cpp` remain simulation only, and
-this was a clean two-unit-at-6-inches run, not a stress test of range or
+40-50ft indoors is not a stress test of maximum range, obstructions, or RF
 interference.
 
 **The pinout and the panel geometry live in `README.md`** — one copy, don't
