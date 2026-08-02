@@ -150,7 +150,9 @@ Safe to build without touching anything the test suite defends.
   palette, and `heading()`/`footer()`/`restoreText()` give the idle, class
   select and nearby-players screens one shared title and key-hint treatment
   instead of the three they had grown independently. `SPARE` is still unused
-  — it is a spare, not a gap.
+  — it is a spare, not a gap. Checked on a real panel, which settles the one
+  open question from `4a4373c`: `BORDER` at 0x4208 is dark, but the bars stay
+  legible against black, so the contrast drop from white is fine as chosen.
 - ~~A standard 16-color palette.~~ Landed (`37f1077`, `492fcf7`):
   `tools/designs/palette.json` is a labeled legend draft (16 swatches, one
   per intended use) approved as-is and wired into named `CardputerUi`
