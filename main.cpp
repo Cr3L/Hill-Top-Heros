@@ -160,23 +160,18 @@ struct CardputerUi : SessionUi {
       // nobody chooses it any more). LS_IDLE has neither. Same corner-tag
       // pattern as the version number.
       //
-      // Suppressed for the duration of a turn, because this corner is not
-      // actually free on every screen and the battle screen is the one that
-      // needs it: its content runs to row 131 (see the height budget in
-      // drawCombatants()) and a bottom_left tag occupies 127-134, so drawing
-      // it there opaquely cut the bottom off "5)Flee - FORFEITS". Dropping the
-      // tag costs nothing mid-match — which side challenged is the least
-      // useful thing on screen once the match is running — where finding 8px
-      // in a layout with 3px of slack would have cost real information. The
-      // version stamp above stays: it is bottom_right, clear of the menu, and
-      // it is the number that decides whether two units can pair at all.
-      const bool midTurn = ui.s && (ui.s->state() == LS_MY_TURN ||
-                                    ui.s->state() == LS_WAIT_PEER);
-      if (ui.s && ui.s->state() != LS_IDLE && !midTurn) {
+      // The two battle states are excluded because this corner is not free on
+      // every screen: that layout runs to row 131 and the tag occupies 127-134,
+      // so it cut the bottom off "5)Flee - FORFEITS". Dropping the tag mid-match
+      // costs nothing, where finding 8px in the budget would have cost real
+      // information. The version stamp above is bottom_right, clear of the menu,
+      // and stays.
+      const LinkState st = ui.s ? ui.s->state() : LS_IDLE;
+      if (st != LS_IDLE && st != LS_MY_TURN && st != LS_WAIT_PEER) {
         g.setTextDatum(textdatum_t::bottom_left);
-        g.drawString(ui.s->state() == LS_SCANNING ? "OPEN"
-                     : ui.s->isHost()             ? "HOST"
-                                                  : "JOIN",
+        g.drawString(st == LS_SCANNING ? "OPEN"
+                     : ui.s->isHost()  ? "HOST"
+                                       : "JOIN",
                      0, g.height());
       }
       g.setTextDatum(textdatum_t::top_left);
