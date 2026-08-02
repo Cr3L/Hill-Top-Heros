@@ -142,9 +142,15 @@ Safe to build without touching anything the test suite defends.
   (name + `Frame`'s corner version stamp) with the open/practice prompt below
   it as a real menu section, per `tools/designs/boot_menu.json` — one draft of
   the one `LS_IDLE` screen, superseding the earlier split title_screen/
-  main_menu pair. Still open: no actual art yet, Settings/About were dropped
-  from the menu draft since nothing in the session FSM backs them, and the
-  draft leaves 64 of the panel's 135 vertical pixels unused above the title.
+  main_menu pair. Still open: no actual art yet, and Settings/About were
+  dropped from the menu draft since nothing in the session FSM backs them.
+- ~~One consistent treatment across screens.~~ Landed: the four palette slots
+  that were approved and then never wired (`DIM`/`BORDER`/`SELECT`/`SPARE`)
+  now have names, every raw `TFT_*` literal in `main.cpp` goes through the
+  palette, and `heading()`/`footer()`/`restoreText()` give the idle, class
+  select and nearby-players screens one shared title and key-hint treatment
+  instead of the three they had grown independently. `SPARE` is still unused
+  — it is a spare, not a gap.
 - ~~A standard 16-color palette.~~ Landed (`37f1077`, `492fcf7`):
   `tools/designs/palette.json` is a labeled legend draft (16 swatches, one
   per intended use) approved as-is and wired into named `CardputerUi`

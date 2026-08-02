@@ -1,141 +1,29 @@
 {
   "regions": [
-    {
-      "name": "FREE_TOP",
-      "x": 0,
-      "y": 0,
-      "w": 240,
-      "h": 40,
-      "c": 0,
-      "fill": false,
-      "mark": 24595,
-      "type": "rect"
-    },
-    {
-      "name": "TITLE",
-      "x": 48,
-      "y": 40,
-      "w": 126,
-      "h": 12,
-      "c": 65504,
-      "fill": false,
-      "mark": 65504,
-      "type": "text-box",
-      "align": false
-    },
-    {
-      "name": "FREE_MID",
-      "x": 0,
-      "y": 52,
-      "w": 240,
-      "h": 24,
-      "c": 0,
-      "fill": false,
-      "mark": 24595,
-      "type": "rect"
-    },
-    {
-      "name": "MENU_OPEN",
-      "x": 12,
-      "y": 76,
-      "w": 189,
-      "h": 12,
-      "c": 0,
-      "fill": false,
-      "mark": 65535,
-      "type": "text-box"
-    },
-    {
-      "name": "MENU_PRAC",
-      "x": 12,
-      "y": 88,
-      "w": 189,
-      "h": 12,
-      "c": 0,
-      "fill": false,
-      "mark": 65535,
-      "type": "text-box"
-    },
-    {
-      "name": "NOTE",
-      "x": 12,
-      "y": 112,
-      "w": 117,
-      "h": 12,
-      "c": 0,
-      "fill": false,
-      "mark": 2047,
-      "type": "text-box"
-    },
-    {
-      "name": "TAG_VER",
-      "x": 228,
-      "y": 127,
-      "w": 12,
-      "h": 8,
-      "c": 0,
-      "fill": false,
-      "mark": 33808,
-      "type": "text-box"
-    }
+    { "name": "TITLE",     "x": 57,  "y": 0,   "w": 126, "h": 12, "c": 2016,  "fill": false, "mark": 2016,  "type": "text-box" },
+    { "name": "FREE_MID",  "x": 0,   "y": 12,  "w": 240, "h": 40, "c": 0,     "fill": false, "mark": 16904, "type": "rect" },
+    { "name": "MENU_OPEN", "x": 0,   "y": 52,  "w": 189, "h": 12, "c": 65535, "fill": false, "mark": 65535, "type": "text-box" },
+    { "name": "MENU_PRAC", "x": 0,   "y": 64,  "w": 189, "h": 12, "c": 65535, "fill": false, "mark": 65535, "type": "text-box" },
+    { "name": "FREE_LOW",  "x": 0,   "y": 76,  "w": 240, "h": 36, "c": 0,     "fill": false, "mark": 16904, "type": "rect" },
+    { "name": "NOTE",      "x": 0,   "y": 112, "w": 117, "h": 12, "c": 33808, "fill": false, "mark": 33808, "type": "text-box" },
+    { "name": "TAG_VER",   "x": 228, "y": 127, "w": 12,  "h": 8,  "c": 33808, "fill": false, "mark": 33808, "type": "text-box" }
   ],
   "labels": [
-    {
-      "text": "HILL-TOP HEROS",
-      "x": 57,
-      "y": 42,
-      "c": 2016
-    },
-    {
-      "text": "O=open - find players",
-      "x": 12,
-      "y": 78,
-      "c": 65535
-    },
-    {
-      "text": "P=practice (1 player)",
-      "x": 12,
-      "y": 90,
-      "c": 65535
-    },
-    {
-      "text": "radio=0 ioe=1",
-      "x": 12,
-      "y": 114,
-      "c": 2047
-    },
-    {
-      "text": "v5",
-      "x": 228,
-      "y": 127,
-      "c": 33808
-    }
+    { "text": "HILL-TOP HEROS",        "x": 57,  "y": 2,   "c": 2016  },
+    { "text": "O=open - find players", "x": 0,   "y": 54,  "c": 65535 },
+    { "text": "P=practice (1 player)", "x": 0,   "y": 66,  "c": 65535 },
+    { "text": "radio=0 ioe=1",         "x": 0,   "y": 114, "c": 33808 },
+    { "text": "v5",                    "x": 228, "y": 127, "c": 33808 }
   ],
   "palette16": [
-    0,
-    65535,
-    2016,
-    65504,
-    63488,
-    31,
-    2047,
-    64800,
-    35362,
-    34816,
-    54705,
-    24595,
-    33808,
-    16904,
-    65088,
-    50712
+    0, 65535, 2016, 65504,
+    63488, 31, 2047, 64800,
+    35362, 34816, 54705, 24595,
+    33808, 16904, 65088, 50712
   ],
-  "selReg": 1,
+  "selReg": 0,
   "selLabel": 0,
-  "show": {
-    "bounds": true,
-    "labels": true,
-    "safe": false
-  },
+  "show": { "bounds": true, "labels": true, "safe": false },
   "tool": "region",
   "zoom": 3
 }

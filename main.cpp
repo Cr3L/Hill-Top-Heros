@@ -137,7 +137,7 @@ struct CardputerUi : SessionUi {
       // enough; the conditional operator converts the other implicitly.
       : g(u.buffered ? static_cast<LovyanGFX&>(u.canvas) : M5Cardputer.Display),
         ui(u) {
-      g.fillScreen(TFT_BLACK);
+      g.fillScreen(kBgColor);
       g.setCursor(0, 0);
     }
     ~Frame() {
@@ -147,6 +147,10 @@ struct CardputerUi : SessionUi {
       // corner: a sanity check on every screen, not something to compete with
       // the battle HUD for attention.
       g.setTextSize(1);
+      // Chrome, so it draws dim: these two tags are on every screen, and at
+      // body-text white they read as content on the ones that are mostly
+      // empty.
+      g.setTextColor(ui.kDimColor, ui.kBgColor);
       g.setTextDatum(textdatum_t::bottom_right);
       char v[8];
       snprintf(v, sizeof(v), "v%u", PROTO_VERSION);
@@ -163,6 +167,7 @@ struct CardputerUi : SessionUi {
                      0, g.height());
       }
       g.setTextDatum(textdatum_t::top_left);
+      g.setTextColor(ui.kTextColor, ui.kBgColor);
       g.setTextSize(ui.kBodyTextSize);
       if (ui.buffered) ui.canvas.pushSprite(0, 0);
     }
@@ -187,18 +192,16 @@ struct CardputerUi : SessionUi {
       lastHp[0] = lastHp[1] = -1;
       lastDelta[0] = lastDelta[1] = 0;
 
-      d.g.setTextDatum(textdatum_t::top_center);
-      d.g.setTextColor(TFT_GREEN, TFT_BLACK);
-      d.g.drawString("HILL-TOP HEROS", kPanelW / 2, 40);
-      d.g.setTextColor(TFT_WHITE, TFT_BLACK);
-      d.g.setTextDatum(textdatum_t::top_left);
-      d->setCursor(12, 76);
+      heading(d, "HILL-TOP HEROS");
+      // Menu sits below centre rather than directly under the title: this is
+      // the one screen with only two lines of content, and pinning them to
+      // kBodyTop left the bottom two thirds of the panel empty.
+      d->setCursor(0, 52);
       d->println("O=open - find players");
       d->println("P=practice (1 player)");
-      if (note) {
-        d->setCursor(12, 112);
-        d->println(note);
-      }
+      // Boot diagnostics are chrome, not content — they matter once, on the
+      // first boot after a flash, and never again.
+      if (note) footer(d, 112, note);
       return;
     }
     if (s && s->state() == LS_OVER) {
@@ -230,6 +233,8 @@ struct CardputerUi : SessionUi {
   // a stock TFT_* macro (HP_LOW == TFT_RED, MP == TFT_BLUE, ...) are still
   // named from the palette rather than left as the macro, so this list stays
   // the one place that has to change if the palette is retuned.
+  static constexpr uint16_t kBgColor     = 0x0000;  // black
+  static constexpr uint16_t kTextColor   = 0xFFFF;  // white
   static constexpr uint16_t kHpFullColor = 0x07E0;  // green
   static constexpr uint16_t kHpMidColor  = 0xFFE0;  // yellow
   static constexpr uint16_t kHpLowColor  = 0xF800;  // red
@@ -238,6 +243,20 @@ struct CardputerUi : SessionUi {
   // HEAL_FX/HIT_FX sat in the palette draft with no consumer.
   static constexpr uint16_t kHitFxColor  = 0xFD20;  // orange-red
   static constexpr uint16_t kHealFxColor = 0x07FF;  // cyan
+  // Chrome, as opposed to game state: everything that frames the content
+  // rather than being content. These four were approved in palette.json at
+  // the same time as the rest and then sat unused, which is how the raw
+  // TFT_WHITE literals crept back in — a border, a version stamp and a
+  // selection highlight all drew in the same white as body text, so nothing
+  // read as chrome. DIM is deliberately low-contrast; it is for text you
+  // should be able to find but never have to read mid-match.
+  static constexpr uint16_t kDimColor    = 0x8410;  // grey
+  static constexpr uint16_t kBorderColor = 0x4208;  // dark grey
+  static constexpr uint16_t kSelectColor = 0xFE40;  // amber
+  // The title green is the same value as HP-FULL. That is the palette having
+  // one green, not these two sharing a meaning: retuning the HP ramp must not
+  // silently restyle the title, so they stay separate names.
+  static constexpr uint16_t kTitleColor  = 0x07E0;  // green
 
   // BUNYAN/DRIFTER/COYOTE/VOODOO palette slots, indexed by classId. Order
   // has to match the ClassId enum in rpg_link.cpp (CLS_BUNYAN=0 ..
@@ -262,7 +281,7 @@ struct CardputerUi : SessionUi {
   // Height and fill color are the only things HP and MP disagree on.
   static void statBar(LovyanGFX& g, int y, int h, int val, int valMax, uint16_t fillColor) {
     int fill = valMax > 0 ? (kPanelW * val) / valMax : 0;
-    g.drawRect(0, y, kPanelW, h, TFT_WHITE);
+    g.drawRect(0, y, kPanelW, h, kBorderColor);
     if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, fillColor);
   }
 
@@ -273,9 +292,36 @@ struct CardputerUi : SessionUi {
   // behind the unfilled part of the bar. Transparent (single-arg
   // setTextColor) so the fill/background shows through around the glyphs
   // instead of an opaque box stamping over the bar.
+  // "Back to normal body text", which was copy-pasted at the end of every
+  // coloured span. One name means a span can't be left open by forgetting
+  // the second argument and silently inheriting a background.
+  static void restoreText(Frame& d) { d.g.setTextColor(kTextColor, kBgColor); }
+
+  // Every screen's title. The three of them had drifted into three different
+  // treatments — two colours and two vertical positions — purely because each
+  // was written at a different time. Body content starts at kBodyTop; callers
+  // position their own cursor from there.
+  static constexpr int kBodyTop = 20;
+  static void heading(Frame& d, const char* text) {
+    d.g.setTextDatum(textdatum_t::top_center);
+    d.g.setTextColor(kTitleColor, kBgColor);
+    d.g.drawString(text, kPanelW / 2, 0);
+    d.g.setTextDatum(textdatum_t::top_left);
+    restoreText(d);
+  }
+
+  // Key hints and status lines: present, findable, and deliberately not
+  // competing with the screen's actual content for attention.
+  static void footer(Frame& d, int y, const char* text) {
+    d.g.setTextColor(kDimColor, kBgColor);
+    d.g.setCursor(0, y);
+    d.g.println(text);
+    restoreText(d);
+  }
+
   static void barLabel(LovyanGFX& g, int y, int h, const char* text) {
     g.setTextSize(1);
-    g.setTextColor(TFT_WHITE);
+    g.setTextColor(kTextColor);
     g.setTextDatum(textdatum_t::middle_center);
     g.drawString(text, kPanelW / 2, y + h / 2);
     g.setTextDatum(textdatum_t::top_left);
@@ -330,7 +376,7 @@ struct CardputerUi : SessionUi {
       bool changed = lastHp[i] >= 0 && b.p[i].hp != lastHp[i];
       if (changed) {
         lastDelta[i] = b.p[i].hp - lastHp[i];
-        d.g.setTextColor(TFT_BLACK,
+        d.g.setTextColor(kBgColor,
                           lastDelta[i] < 0 ? kHitFxColor : kHealFxColor);
       } else {
         // Class tint on the name itself, rather than relying on whatever
@@ -338,14 +384,14 @@ struct CardputerUi : SessionUi {
         // this makes it explicit). Falls back to white for an out-of-range
         // classId, same defensiveness as classDefOf()'s fallback to class 0.
         uint16_t tint = b.p[i].classId < kClassColorCount
-                            ? kClassColor[b.p[i].classId] : TFT_WHITE;
-        d.g.setTextColor(tint, TFT_BLACK);
+                            ? kClassColor[b.p[i].classId] : kTextColor;
+        d.g.setTextColor(tint, kBgColor);
       }
       // '>' marks the player's own row — same info the old code left the
       // player to infer from remembering which class they'd been dealt.
       // HP/MP numbers no longer sit here — see barLabel().
       d->printf("%c%s\n", i == me ? '>' : ' ', b.p[i].name);
-      if (changed) d.g.setTextColor(TFT_WHITE, TFT_BLACK);
+      if (changed) restoreText(d);
       lastHp[i] = b.p[i].hp;
       int y = d->getCursorY();
       hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
@@ -376,9 +422,9 @@ struct CardputerUi : SessionUi {
     // Turn banner: the single strongest signal for "whose move is it right
     // now", inverted so it reads at a glance instead of by parsing text.
     bool myMove = s->state() == LS_MY_TURN;
-    d.g.setTextColor(TFT_BLACK, TFT_WHITE);
+    d.g.setTextColor(kBgColor, kSelectColor);
     d->printf("T%-3u%s\n", b.turn, myMove ? "YOUR MOVE" : "OPP'S MOVE...");
-    d.g.setTextColor(TFT_WHITE, TFT_BLACK);
+    restoreText(d);
 
     drawCombatants(d, b, me, "You");
 
@@ -405,10 +451,8 @@ struct CardputerUi : SessionUi {
   // arrow-then-Enter.
   void classSelect() {
     Frame d(*this);
-    d.g.setTextDatum(textdatum_t::top_center);
-    d.g.drawString("SELECT CLASS", kPanelW / 2, 0);
-    d.g.setTextDatum(textdatum_t::top_left);
-    d->setCursor(0, 20);
+    heading(d, "SELECT CLASS");
+    d->setCursor(0, kBodyTop);
     // Blurb order matches CLASS_TABLE in rpg_link.cpp, same as kClassColor[]
     // above it — flavor text isn't part of ClassDef, so it's the one array
     // here that still has to track the table by hand. Names come from
@@ -420,11 +464,10 @@ struct CardputerUi : SessionUi {
       "drains, punishes glass",
     };
     for (uint8_t i = 0; i < classCount() && i < kClassColorCount; i++) {
-      d.g.setTextColor(kClassColor[i], TFT_BLACK);
+      d.g.setTextColor(kClassColor[i], kBgColor);
       d->printf("%d)%s - %s\n", i + 1, classNameOf(i), blurb[i]);
     }
-    d.g.setTextColor(TFT_WHITE, TFT_BLACK);
-    d->println("Q=cancel");
+    footer(d, d->getCursorY(), "Q=cancel");
   }
 
   // Coarse RSSI bucket for display — the exact dBm number means little to a
@@ -438,10 +481,8 @@ struct CardputerUi : SessionUi {
 
   void scanResults() {
     Frame d(*this);
-    d.g.setTextDatum(textdatum_t::top_center);
-    d.g.drawString("NEARBY PLAYERS", kPanelW / 2, 0);
-    d.g.setTextDatum(textdatum_t::top_left);
-    d->setCursor(0, 20);
+    heading(d, "NEARBY PLAYERS");
+    d->setCursor(0, kBodyTop);
     if (!s || s->sightingCount() == 0) {
       d->println("open - looking...");
     } else {
@@ -451,7 +492,7 @@ struct CardputerUi : SessionUi {
                   (unsigned)(sg.hostId & 0xFFFF), rssiBucket(sg.rssi));
       }
     }
-    d->println("Q=cancel");
+    footer(d, d->getCursorY(), "Q=cancel");
   }
 
   // Local single-device demo: renders straight from a BattleState the caller
