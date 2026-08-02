@@ -138,12 +138,13 @@ Safe to build without touching anything the test suite defends.
   just single-unit practice mode. Not exercised this run: the flee prompt
   itself (`ACT_FLEE`, key `5`) — already covered by `testFleeForfeits` in the
   host suite, just not seen live yet.
-- ~~A title/attract screen.~~ Landed: idle `status()` now draws a title
-  (name + `Frame`'s corner version stamp) with the Host/Join prompt below it
-  as a real menu section, per `tools/designs/title_screen.json` and
-  `main_menu.json`. Still open: the title's `GRAPHIC` placeholder region —
-  no actual art yet, and Settings/About were dropped from the menu draft
-  since nothing in the session FSM backs them.
+- ~~A title/attract screen.~~ Landed: idle `status()` now draws a green title
+  (name + `Frame`'s corner version stamp) with the open/practice prompt below
+  it as a real menu section, per `tools/designs/boot_menu.json` — one draft of
+  the one `LS_IDLE` screen, superseding the earlier split title_screen/
+  main_menu pair. Still open: no actual art yet, Settings/About were dropped
+  from the menu draft since nothing in the session FSM backs them, and the
+  draft leaves 64 of the panel's 135 vertical pixels unused above the title.
 - ~~A standard 16-color palette.~~ Landed (`37f1077`, `492fcf7`):
   `tools/designs/palette.json` is a labeled legend draft (16 swatches, one
   per intended use) approved as-is and wired into named `CardputerUi`
