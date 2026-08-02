@@ -30,7 +30,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 2 | Rejoin after "peer unreachable" | Done | LS_LINGER + PKT_STATUS landed (sim-verified); both-sides-stuck sub-case deferred (livelock risk); real hardware disconnect test still open |
 | 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
 | 2 | Peer discovery / symmetric presence | Done | Host/join roles retired: one `LS_SCANNING` "open" state beacons *and* listens. Pick a player off the list to challenge; either side can initiate. Confirmed on hardware |
-| 2 | Player identity (name entry) | Done | `PROTO_VERSION` 5→6, still 38 bytes — `name[7]` shares the pre-CRC bytes with turn/action/stateHash. Nearby list shows names; hex id is the fall-back. Wire names are sanitized on receive; names are cosmetic, not authenticated. Not persisted, not on the battle screen. Unverified on hardware |
+| 2 | Player identity (name entry) | Done | `PROTO_VERSION` 5→6, still 38 bytes — `name[7]` shares the pre-CRC bytes with turn/action/stateHash. Nearby list shows names; hex id is the fall-back. Wire names are sanitized on receive; names are cosmetic, not authenticated. Persisted to NVS (survives reboot); still not on the battle screen. Unverified on hardware |
 | 2 | Version-mismatch UX | Open | Not started |
 | 3 | Visual confirmation (HP bars, flee prompt) | Done | HP/MP bars, hit/heal flash, and pairing confirmed in a real 2-unit match; flee prompt itself not exercised this run |
 | 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
@@ -38,12 +38,12 @@ stand*. Update both together, same as everywhere else in this file.
 | 3 | Hit/heal animation feedback | Done | Directional flash (HIT_FX/HEAL_FX), confirmed on hardware; true multi-frame fade/shake still open |
 | 3 | Post-match rematch prompt + host/joiner indicator | Done | `Session::rematchKeepingRole()`, `r`/`q` split at `LS_OVER`, persistent HOST/JOIN corner tag. Sourced from playtest feedback ("hard to play again", "hard to know who is hosting") |
 | 3 | Sound | Open | Blocked on checking whether the buzzer is even wired |
-| 3 | Match history | Open | Needs NVS persistence — first persistence this project would have |
+| 3 | Match history | Open | NVS is wired up now; what's missing is the data model, not the storage |
 | 4 | Two-radio test | Done | Full match played to a verdict on real RF |
 | 4 | EU frequency + duty cycle | Open | Only urgent before a unit goes on air outside US/AU |
 | 4 | Power management | Open | Not started, untested |
 | 4 | OTA firmware updates | Open | WiFi OTA vs. LoRa OTA unresolved; intended as reusable beyond this project |
-| 5 | Radio-first mechanics (proximity/breadcrumb/intercept) | Partly unblocked | The passive-scan mechanism it was waiting on now exists (sighting log with RSSI). "Enemy detected" is largely landed as the nearby-players list; breadcrumb still needs persistence, intercept still unscoped |
+| 5 | Radio-first mechanics (proximity/breadcrumb/intercept) | Partly unblocked | The passive-scan mechanism it was waiting on now exists (sighting log with RSSI). "Enemy detected" is largely landed as the nearby-players list; breadcrumb's NVS blocker is gone but it still needs a reboot-surviving time base, intercept still unscoped |
 
 ## 1. Finish the combat loop (touches `rpg_link.*` — the tested core)
 
@@ -132,11 +132,16 @@ The protocol works; the experience around it is minimal.
   new session tests (beacon → sighting, both handshake seats, truncation and
   rematch survival, rename-bumps-the-list-version). Two pieces deliberately not
   built:
-  - **The name does not survive a power cycle.** It lives in RAM only, so a
-    reboot drops back to the hex id. Persisting it is the same NVS /
-    `Preferences.h` work already flagged under *Match history* and the
-    breadcrumb idea in group 5 — worth landing all three together rather than
-    three times.
+  - ~~**The name does not survive a power cycle.**~~ Landed: NVS via
+    `Preferences.h`, the first thing this project stores across a reboot.
+    `main.cpp` opens the `htheroes` namespace once in `setup()` and restores
+    the name into `Session` after `begin()`; `saveName()` writes on the Enter
+    commit only, never per keystroke. No `PROTO_VERSION` bump and no session
+    change — `Session` still owns the name in RAM and cannot see NVS, per the
+    layering rule. The stored value is not re-sanitized on read, deliberately:
+    its only writer is the local entry screen, which already filters to
+    printable ASCII, unlike a name off the air. **Unverified on hardware** —
+    like the name feature itself.
   - **The name is not on the battle screen.** `drawCombatants()` is at its
     real ceiling of row 127 (see the HP-number entry in group 3), so putting a
     name beside the class there is part of that same budget rework, not a
@@ -259,10 +264,12 @@ Safe to build without touching anything the test suite defends.
 - **Sound.** Unexplored entirely — unclear if the Cardputer ADV's buzzer (if
   any) is even wired in `platformio.ini`'s lib set. Needs a hardware check
   before it's schedulable.
-- **Match history / win-loss record.** Nothing persists across power cycles;
-  `rematch()` resets in-memory only. Would need flash storage (NVS via
-  `Preferences.h` is the usual ESP32 answer) — first persistence this project
-  would have.
+- **Match history / win-loss record.** Still open, but no longer blocked on
+  persistence: NVS is wired up (see *Player identity* in group 2), the
+  namespace is opened once in `setup()`, and the convention is one
+  `loadX()`/`saveX()` pair per stored field. What is missing is the data
+  model, not the storage — `rematch()` resets in memory and nothing counts
+  wins in the first place.
 
 ## 4. Radio / compliance (touches `main.cpp`, hardware-gated)
 
@@ -319,9 +326,11 @@ that log beyond listing it.
   calibrated against measured link quality — worth revisiting with real
   distance data before any UI claims more precision than "strong/ok/weak".
 - **"A player passed through here 3 hours ago."** Same sighting log, read
-  back later instead of live. Needs the sighting log to survive a reboot —
-  first persistence this project would have, same NVS/`Preferences.h` need
-  already flagged under *Match history* above; likely worth landing together.
+  back later instead of live. The NVS layer it was waiting on now exists (see
+  *Player identity* in group 2), so what is left is genuinely this feature:
+  serializing a ring of sightings rather than a single string, and a wall-clock
+  question the name never had — the Cardputer has no RTC, so "3 hours ago"
+  needs a time base this project does not currently keep across a reboot.
 - **"You intercepted another battle."** The least settled. `PKT_ACTION` /
   `PKT_STATUS` between two other units are unencrypted on the wire, so
   overhearing them is possible, but reconstructing something meaningful

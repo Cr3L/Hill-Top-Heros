@@ -6,6 +6,7 @@
 #include <M5Cardputer.h>
 #include <RadioLib.h>
 #include <SPI.h>
+#include <Preferences.h>
 // Not re-exported by M5Unified.hpp — only M5Unified.cpp includes it internally.
 #include <utility/PI4IOE5V6408_Class.hpp>
 #include "rpg_session.h"
@@ -648,6 +649,49 @@ static char gNameBuf[PLAYER_NAME_MAX + 1] = {0};
 // changes rather than on a fixed timer, to skip repainting an unchanged screen.
 static uint32_t gLastScanVersion = 0;
 
+// ------------------------------------------------------- persistent settings
+// NVS via Preferences.h — the first thing this project keeps across a power
+// cycle. Session owns the name in RAM; this is only what makes it survive a
+// reboot, and it lives in main.cpp because Session may not touch hardware.
+//
+// The namespace is opened once in setup() and never closed, so the accessors
+// below are each a single field and nothing more. Match history and the
+// sighting log (see ROADMAP.md) are the next two things that will want storing:
+// each adds its own load/save pair here, not another begin().
+//
+// Both the namespace and the key are capped at 15 characters by NVS itself,
+// which is why they are terse rather than descriptive.
+static Preferences gPrefs;
+static const char* kPrefsNamespace = "htheroes";
+static const char* kPrefsKeyName   = "name";
+
+// Restores the stored name into Session, or leaves it alone if none was saved.
+// Nothing stored is the ordinary case, not an error: a fresh unit shows its hex
+// id in other players' lists exactly as it did before any of this existed.
+//
+// Deliberately not re-validated on the way in. The only writer is saveName()
+// below, fed from gNameBuf, which the name-entry handler already filters to
+// printable ASCII and caps at PLAYER_NAME_MAX — unlike a name off the air,
+// which is unauthenticated and is sanitized in rpg_session.cpp for that reason.
+static void loadName() {
+  // Zeroed first because getString() leaves the buffer untouched on every
+  // failure path and returns 0 for all of them alike — no stored key, and also
+  // a stored value too long to fit, which it refuses rather than truncates.
+  // Those are indistinguishable here on purpose: both mean "no usable name",
+  // and both land on the hex-id fallback. The over-long case is unreachable
+  // from this firmware, whose only writer caps at PLAYER_NAME_MAX; it would
+  // take a build with a larger cap having owned this flash first.
+  char saved[PLAYER_NAME_MAX + 1] = {0};
+  gPrefs.getString(kPrefsKeyName, saved, sizeof(saved));
+  if (saved[0]) gSession.setName(saved);
+}
+
+// Called on commit, never per keystroke: this is flash, and the edit buffer
+// changes on every letter.
+static void saveName(const char* name) {
+  gPrefs.putString(kPrefsKeyName, name);
+}
+
 static ActionId practiceBotChoose(const BattleState& b) {
   const Combatant& me = b.p[1];
   if (me.hp * 3 < me.hpMax && me.items) return ACT_ITEM;    // heal when low
@@ -710,6 +754,16 @@ void setup() {
   gUi.note = note;
 
   gSession.begin(deviceId(), esp_random());   // hw RNG, only used pre-match
+  // Opened here rather than inside loadName(), so that a later saved value has
+  // one obvious precondition instead of depending on a read having happened
+  // first. A failure is worth saying out loud: the symptom is a name that
+  // silently forgets itself every reboot, which reads as a name-entry bug.
+  if (!gPrefs.begin(kPrefsNamespace, /*readOnly=*/false))
+    Serial.println("NVS open failed - settings will not persist this boot");
+
+  // After begin(), which resets session state: the name is device identity
+  // rather than match state, so it is restored on top of a clean Session.
+  loadName();
 }
 
 void loop() {
@@ -733,6 +787,7 @@ void loop() {
     if (gNameEditing) {
       if (ks.enter) {
         gSession.setName(gNameBuf);
+        saveName(gNameBuf);
         gNameEditing = false;
         gUi.status("");                  // LS_IDLE redraws, name and all
       } else {
