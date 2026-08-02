@@ -41,6 +41,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 4 | Two-radio test | Done | Full match played to a verdict on real RF |
 | 4 | EU frequency + duty cycle | Open | Only urgent before a unit goes on air outside US/AU |
 | 4 | Power management | Open | Not started, untested |
+| 5 | Radio-first mechanics (proximity/breadcrumb/intercept) | Open | Unscoped — needs a passive-scan design pass before any sub-idea is plan-ready |
 
 ## 1. Finish the combat loop (touches `rpg_link.*` — the tested core)
 
@@ -198,6 +199,40 @@ Safe to build without touching anything the test suite defends.
   continuously. Battery life on a handheld device is presumably a real
   constraint, untested.
 
+## 5. Radio-first mechanics (touches `rpg_session.*`, hardware-gated)
+
+Idea surfaced from outside review: instead of hiding the radio, make its
+physical properties — beacons, RSSI, "someone was in range" — part of the
+game itself. Unscoped; recorded here so it isn't lost, not because it's next.
+
+All three flavors below read from the same underlying mechanism, so this is
+one design task, not three: a passive scan state where a unit at LS_IDLE (or
+a new `LS_SCANNING`) keeps listening and logs `(src id, RSSI, timestamp)` for
+any `PKT_BEACON` it overhears, whether or not it ever joins that beacon. No
+new wire packet types needed for the first two ideas below — `PKT_BEACON`
+already exists and already carries a commit and an id.
+
+- **"Enemy detected — distance ~400m, signal weak."** A live beacon read back
+  as a bucketed RSSI-to-strength label (weak/medium/strong), not real
+  ranging — the UI text has to stay honest about that, no false precision.
+  The most settled of the three; mostly a `Session`/UI job once the scan
+  state exists.
+- **"A player passed through here 3 hours ago."** Same sighting log, read
+  back later instead of live. Needs the sighting log to survive a reboot —
+  first persistence this project would have, same NVS/`Preferences.h` need
+  already flagged under *Match history* above; likely worth landing together.
+- **"You intercepted another battle."** The least settled. `PKT_ACTION` /
+  `PKT_STATUS` between two other units are unencrypted on the wire, so
+  overhearing them is possible, but reconstructing something meaningful
+  without the full handshake state (seeds, class ids) is real design work.
+  Scope the first version as flavor text only — "a battle happened nearby,"
+  not a full spectate — rather than committing to live intercept.
+
+Layering note: this stays inside the existing rule. Passive scanning is
+`Transport::recv()` plus an RSSI read, which crosses the hardware boundary
+exactly where `Session` already does — new `LS_SCANNING` state and a small
+sighting ring buffer, not a new interface.
+
 ## Sequencing notes
 
 - **Everything in group 1 changes the wire format or the hash.** Each one is
@@ -209,6 +244,9 @@ Safe to build without touching anything the test suite defends.
   confirmed, which unblocks live checks on several items above (rejoin UX,
   split verdicts, retry jitter, and the group-3 visual items) that were
   previously "verified in the sim only."
+- **Group 5 is not plan-ready.** It needs its own design pass (the passive
+  scan state) before any sub-idea can be turned into a task, unlike the rest
+  of this document which is mostly gaps in an already-agreed design.
 - Nothing here is prioritized against anything else yet — that's a
   conversation for whoever's picking the next task, not something to bake
   into this document.

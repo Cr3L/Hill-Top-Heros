@@ -4,11 +4,12 @@ A 1v1 turn-based RPG fighter for the **M5Stack Cardputer ADV**. Two units pair
 peer-to-peer over an **SX1262 LoRa** module and fight a lockstep-deterministic
 match — no server, no access point, just the two radios.
 
-> **Status: one unit boots, nothing has been transmitted.** The protocol is
-> heavily tested against a simulated lossy channel. A single Cardputer ADV with
-> the official Cap LoRa-1262 now boots, initialises the radio cleanly and drives
-> the UI — but no packet has ever crossed the air between two units. See
-> [Hardware](#hardware).
+> **Status: full matches play out live over LoRa.** Two Cardputer ADVs with the
+> official Cap LoRa-1262 have paired over the air and played complete duels to
+> a verdict, both sides agreeing on the result — pairing, commit-reveal, and
+> the battle sim all confirmed on real radios, not just in simulation. Still
+> open: recovery from a mid-match packet loss / rejoin on hardware, and
+> anything outside a clean six-inch link. See [Hardware](#hardware).
 
 ## How a match works
 
@@ -94,7 +95,8 @@ pio run -t upload    # flash
 pio device monitor   # serial log, 115200 over USB CDC
 ```
 
-It builds, flashes and boots on a Cardputer ADV.
+It builds, flashes and boots on a Cardputer ADV — two units, paired over the
+air, have played full matches to a verdict. See [Hardware](#hardware).
 
 ### What the simulation found
 
