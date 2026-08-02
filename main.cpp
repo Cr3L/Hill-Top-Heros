@@ -285,13 +285,6 @@ struct CardputerUi : SessionUi {
     if (fill > 2) g.fillRect(1, y + 1, fill - 2, h - 2, fillColor);
   }
 
-  // The hp/mp numbers live inside the bar itself now rather than on the
-  // name line above it, so this always draws in white: full-strength fill
-  // colors (green, red, blue) are all chosen to keep white legible against
-  // them, and white also reads fine against the plain black background
-  // behind the unfilled part of the bar. Transparent (single-arg
-  // setTextColor) so the fill/background shows through around the glyphs
-  // instead of an opaque box stamping over the bar.
   // "Back to normal body text", which was copy-pasted at the end of every
   // coloured span. One name means a span can't be left open by forgetting
   // the second argument and silently inheriting a background.
@@ -319,11 +312,40 @@ struct CardputerUi : SessionUi {
     restoreText(d);
   }
 
-  static void barLabel(LovyanGFX& g, int y, int h, const char* text) {
-    g.setTextSize(1);
-    g.setTextColor(kTextColor);
+  // The hp/mp numbers live inside the bar rather than on the name line above
+  // it, which means a centered label straddles both halves of the bar: the
+  // fill on the left, plain background on the right, and the boundary moves
+  // as HP drops. There is no single text color that survives that. This used
+  // to draw plain white on the claim that the fill colors were "chosen to
+  // keep white legible" — on a real panel white over HP-FULL green is
+  // unreadable at full health, which is the case that matters most, since it
+  // is the number you check before committing to a turn.
+  //
+  // So: outline the glyphs in the background color and draw white on top.
+  // That reads against green, yellow, red, blue and black alike, without an
+  // opaque box stamping over the bar the way a two-arg setTextColor would.
+  // Eight extra draws per label, on a buffered canvas that only repaints on
+  // a keypress — the cost is not worth optimizing into a 4-neighbour outline
+  // that leaves the diagonals thin.
+  //
+  // Size is the caller's, because the two bars cannot agree on one. Contrast
+  // was only half the reason the HP number was hard to read: at size 1 it was
+  // a 6x8 glyph on a screen where everything else is 9x12. HP can afford the
+  // bigger text (14px bar, 12px interior, an exact fit for kBodyTextSize) and
+  // MP cannot (10px bar, 8px interior). Growing the MP bar to match is not
+  // free — the height budget in drawCombatants() is at 132 of 135 pixels — so
+  // MP keeps the small label, consistent with it already having been given
+  // the tighter bar on the grounds that its number matters less turn to turn.
+  static void barLabel(LovyanGFX& g, int y, int h, const char* text, float size) {
+    g.setTextSize(size);
     g.setTextDatum(textdatum_t::middle_center);
-    g.drawString(text, kPanelW / 2, y + h / 2);
+    const int cx = kPanelW / 2, cy = y + h / 2;
+    g.setTextColor(kBgColor);
+    for (int dx = -1; dx <= 1; dx++)
+      for (int dy = -1; dy <= 1; dy++)
+        if (dx || dy) g.drawString(text, cx + dx, cy + dy);
+    g.setTextColor(kTextColor);
+    g.drawString(text, cx, cy);
     g.setTextDatum(textdatum_t::top_left);
     g.setTextSize(kBodyTextSize);
   }
@@ -341,7 +363,7 @@ struct CardputerUi : SessionUi {
     statBar(g, y, kHpBarH, hp, hpMax, fillColor);
     char text[16];
     snprintf(text, sizeof(text), "%d/%d", hp, hpMax);
-    barLabel(g, y, kHpBarH, text);
+    barLabel(g, y, kHpBarH, text, kBodyTextSize);
   }
 
   // Thinner and stacked directly under the HP bar, not given its own text
@@ -352,7 +374,7 @@ struct CardputerUi : SessionUi {
     statBar(g, y, kMpBarH, mp, mpMax, kMpColor);
     char text[16];
     snprintf(text, sizeof(text), "M %d/%d", mp, mpMax);
-    barLabel(g, y, kMpBarH, text);
+    barLabel(g, y, kMpBarH, text, 1.0f);
   }
 
   // Both HP rows plus the "what just happened" delta line — identical

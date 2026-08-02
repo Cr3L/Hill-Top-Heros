@@ -161,11 +161,9 @@ Safe to build without touching anything the test suite defends.
   red/green/blue: HP_MID gives the HP bar a third tier (yellow, 25–50%,
   between full and low), and each combatant's name is tinted by class
   (BUNYAN/DRIFTER/COYOTE/VOODOO). Still open: `HEAL_FX`/`HIT_FX` (drafted,
-  not consumed by anything yet — see the animations bullet below),
-  `DIM`/`BORDER` (no de-emphasized UI exists to apply them to), `SELECT` (no
-  selectable menu exists yet), `SPARE` (unclaimed). Wire more of these as
-  the features that would use them get built, rather than forcing them in
-  now with no real consumer.
+  not consumed by anything yet — see the animations bullet below). `DIM`,
+  `BORDER` and `SELECT` were wired later, in the uniformity pass above; only
+  `SPARE` is still unclaimed, which is what a spare is for.
 - ~~**Feedback on hit/heal.**~~ Landed: `drawCombatants()`'s existing
   same-frame flash now uses `HIT_FX`/`HEAL_FX` (orange-red/cyan) instead of a
   generic invert, so "you got hit" reads differently from "you were healed"
@@ -187,6 +185,19 @@ Safe to build without touching anything the test suite defends.
   (`Frame::~Frame()`, same pattern as the existing `v%u` version stamp).
   UI/session-orchestration only, no `PROTO_VERSION` bump. Verified: `make -C
   test` and `pio run` both green.
+- **The HP number is legible, not good.** Reported from play: white at size 1
+  over HP-FULL green was unreadable at full health. Outlining the glyphs and
+  raising them to `kBodyTextSize` fixed the reported problem — verified on
+  Unit 1, and the verdict was "works, wouldn't say it's fantastic", which is
+  recorded here as-is rather than as a win. The real constraint is that the
+  number sits *inside* the bar at all, which was only ever a response to the
+  135px panel having nowhere else to put it; an outlined label crossing a
+  moving fill boundary is a workaround for that, not a design. MP is still at
+  size 1 for the same reason — its 10px bar has an 8px interior and the
+  height budget in `drawCombatants()` is at 132 of 135. Doing this properly
+  means re-cutting that budget: a shorter format (`100` over `100/100`), or
+  moving the numbers back out to the name line now that it is no longer
+  carrying them. Not attempted — it is a layout rework, not a tweak.
 - **Sound.** Unexplored entirely — unclear if the Cardputer ADV's buzzer (if
   any) is even wired in `platformio.ini`'s lib set. Needs a hardware check
   before it's schedulable.
