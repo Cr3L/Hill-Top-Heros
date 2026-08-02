@@ -3,8 +3,15 @@
 Big-picture list of what a shippable game needs beyond the current duel
 prototype. This is a map of gaps, not a commitment to build all of it — each
 item still enters the normal loop (`CLAUDE.md`) as its own single task when
-picked up. Grouped by what's actually missing, checked against the code as of
-`0657b44`, not guessed.
+picked up. Grouped by what's actually missing, checked against the code, not
+guessed.
+
+The status table below is only true if it is updated in the same pass as the
+work, per `CLAUDE.md`. This file used to carry a "checked as of `<commit>`"
+stamp, which is what let *Version-mismatch UX* sit at "Not started" for days
+after it shipped — a stamp records when someone last looked, and reading it
+tells you nothing about which individual row drifted. If a row looks wrong,
+check the code and fix the row.
 
 ## What exists today
 
@@ -31,7 +38,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
 | 2 | Peer discovery / symmetric presence | Done | Host/join roles retired: one `LS_SCANNING` "open" state beacons *and* listens. Pick a player off the list to challenge; either side can initiate. Confirmed on hardware |
 | 2 | Player identity (name entry) | Done | `PROTO_VERSION` 5→6, still 38 bytes — `name[7]` shares the pre-CRC bytes with turn/action/stateHash. Nearby list shows names; hex id is the fall-back. Wire names are sanitized on receive; names are cosmetic, not authenticated. Persisted to NVS (survives reboot); still not on the battle screen. Unverified on hardware |
-| 2 | Version-mismatch UX | Open | Not started |
+| 2 | Version-mismatch UX | Done | `packetVersionMismatch()` + a status line during pairing (`327dd87`). Catches layout-preserving bumps only, which includes the live v5/v6 skew; a layout-changing peer still fails closed and silent |
 | 3 | Visual confirmation (HP bars, flee prompt) | Done | HP/MP bars, hit/heal flash, and pairing confirmed in a real 2-unit match; flee prompt itself not exercised this run |
 | 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
 | 3 | 16-color palette | Done | `DIM`/`BORDER`/`SELECT`/`SPARE` slots drafted but not yet consumed by anything |
@@ -169,10 +176,25 @@ The protocol works; the experience around it is minimal.
     project does not do and has never claimed to — worth stating plainly here
     rather than leaving someone to assume the name in the list is proof of who
     they are challenging.
-- **Version-mismatch UX.** A `PROTO_VERSION` bump silently fails to pair
-  (`BYE_BAD_COMMIT` territory) rather than reporting "peer is running a
-  different version." Matters more as this gets updated on two units
-  independently.
+- ~~**Version-mismatch UX.**~~ Landed in `327dd87`: `packetVersionMismatch()`
+  is true for a well-formed packet (right magic, intact CRC) whose version
+  isn't ours — distinct from `packetValid()`'s false, which also covers plain
+  noise. `Session::pumpRx()` turns that into `"peer is on a different
+  version"`, shown during pairing states only (mid-match it would be stray
+  traffic, not worth interrupting a battle over) and once per pairing attempt
+  rather than once per beacon.
+
+  **The limit is structural and worth restating here**, because it is easy to
+  read the feature as more complete than it is: the CRC is checked against
+  *our* `sizeof(Packet)`, so this only catches a bump that preserved the
+  packet's size. A peer on a layout-changing version sends bytes that don't
+  line up with our fields at all, fails closed, and is silent — the exact
+  symptom the feature exists to remove. It cannot be tested from a single
+  binary either, which would need two `Packet` definitions at once.
+
+  The current 5→6 bump falls on the good side of that line: `magic` and
+  `version` are the first three bytes and did not move, and the packet stayed
+  38 bytes, so a v5 unit is correctly reported rather than silently ignored.
 
 ## 3. Presentation (touches `main.cpp` only — no protocol risk)
 
