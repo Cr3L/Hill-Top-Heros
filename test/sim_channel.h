@@ -32,7 +32,7 @@ struct SimChannel {
     uint32_t start, end;                 // occupies the channel over [start,end)
     bool     collided = false;
   };
-  struct Queued { Packet p; uint32_t at; };
+  struct Queued { Packet p; uint32_t at; int16_t rssi; };
 
   uint32_t t = 0;                        // virtual milliseconds
   Rng      rng;
@@ -41,6 +41,11 @@ struct SimChannel {
   uint32_t dupPct = 0;
   uint32_t reorderMaxMs = 0;
   bool     collisionsEnabled = true;
+  // Simulated signal strength per sender, as heard by the other peer. Not
+  // modelled against distance or anything physical — a scenario sets this
+  // directly to exercise RSSI-dependent display logic (see sim_channel.h's
+  // header comment: real RSSI-dependent loss still isn't modelled).
+  int16_t  rssiOf[2] = {-70, -70};
 
   uint32_t txFreeAt[2] = {0, 0};         // when each peer stops transmitting
   std::vector<Inflight> air;
@@ -109,20 +114,21 @@ struct SimChannel {
 
       if (deliver) {
         uint32_t delay = reorderMaxMs ? rng.range(0, reorderMaxMs) : 0;
-        inbox[to].push_back({ f.p, f.end + delay });
+        inbox[to].push_back({ f.p, f.end + delay, rssiOf[f.from] });
         if (rollPct(dupPct))
-          inbox[to].push_back({ f.p, f.end + delay + rng.range(1, 40) });
+          inbox[to].push_back({ f.p, f.end + delay + rng.range(1, 40), rssiOf[f.from] });
       }
       air.erase(air.begin() + (long)i);
     }
   }
 
-  bool recv(int who, Packet& out) {
+  bool recv(int who, Packet& out, int16_t* rssi = nullptr) {
     // A peer mid-transmission is deaf.
     if (txFreeAt[who] > t && txFreeAt[who] - AIRTIME_MS <= t) return false;
     for (size_t i = 0; i < inbox[who].size(); i++) {
       if (inbox[who][i].at <= t) {
         out = inbox[who][i].p;
+        if (rssi) *rssi = inbox[who][i].rssi;
         inbox[who].erase(inbox[who].begin() + (long)i);
         delivered++;
         return true;
@@ -139,7 +145,7 @@ struct SimTransport : Transport {
   int who;
   SimTransport(SimChannel& c, int w) : ch(c), who(w) {}
   void send(const Packet& p) override { ch.send(who, p); }
-  bool recv(Packet& out) override { return ch.recv(who, out); }
+  bool recv(Packet& out, int16_t* rssi = nullptr) override { return ch.recv(who, out, rssi); }
 };
 
 struct SimClock : Clock {
@@ -179,6 +185,10 @@ struct Rig {
   // (e.g. reaching MAX_TURNS) overrides this to play a healing mix instead.
   std::function<char(const Session&)> keyFor = [](const Session&) { return '1'; };
 
+  // Whether run() plays the human who picks a peer off the scan list. The
+  // scanning tests turn this off to inspect the list themselves.
+  bool autoPair = true;
+
   void begin(uint32_t chanSeed, uint32_t hostSeed = 0xAAAA1111,
              uint32_t joinSeed = 0xBBBB2222) {
     ch.reset(chanSeed);
@@ -186,8 +196,11 @@ struct Rig {
     ui1.lines.clear();
     host.begin(0x1001, hostSeed);
     join.begin(0x2002, joinSeed);
-    host.startHosting(0);
-    join.startJoining(1);
+    // Both simply open — there is no host/join role any more. Deliberately
+    // sends nothing here, so a filter installed right after begin() still
+    // catches the very first packet on the air, same as before.
+    host.startScanning(0);
+    join.startScanning(1);
   }
 
   // Advance virtual time, polling both peers. Presses keys for whoever is
@@ -198,6 +211,15 @@ struct Rig {
       ch.settle();
       host.poll();
       join.poll();
+      // Plays the part of the human who picks someone off the list. Only
+      // `join` ever initiates: `host` stays open and passive and accepts the
+      // challenge, mirroring the real flow where exactly one side presses a
+      // key. Deliberately OUTSIDE the autoPlay gate: autoPlay means "press
+      // battle keys", and pairing used to happen in the FSM itself
+      // (LS_JOINING auto-joined the first beacon heard) regardless of it —
+      // the autoPlay=false scenarios still expect to reach a live match.
+      if (autoPair && join.state() == LS_SCANNING && join.sightingCount() > 0)
+        join.joinSighting(join.sighting(0).hostId);
       if (autoPlay) {
         if (host.state() == LS_MY_TURN) host.onKey(keyFor(host));
         if (join.state() == LS_MY_TURN) join.onKey(keyFor(join));
@@ -210,8 +232,8 @@ struct Rig {
     return host.state() == LS_OVER && join.state() == LS_OVER;
   }
   bool paired() const {
-    return host.state() != LS_IDLE && host.state() != LS_BEACONING &&
-           join.state() != LS_IDLE && join.state() != LS_JOINING &&
+    return host.state() != LS_IDLE && host.state() != LS_SCANNING &&
+           join.state() != LS_IDLE && join.state() != LS_SCANNING &&
            host.state() != LS_HANDSHAKE && join.state() != LS_HANDSHAKE;
   }
 };

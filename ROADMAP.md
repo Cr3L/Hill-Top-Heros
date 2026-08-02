@@ -29,7 +29,8 @@ stand*. Update both together, same as everywhere else in this file.
 | 1 | Balance beyond the 4-cycle | Shelved | Depends on player-chosen class landing first |
 | 2 | Rejoin after "peer unreachable" | Done | LS_LINGER + PKT_STATUS landed (sim-verified); both-sides-stuck sub-case deferred (livelock risk); real hardware disconnect test still open |
 | 2 | More than one peer | Open | Not urgent — only 2-unit configs ever tested |
-| 2 | Player identity (name entry) | Open | Small |
+| 2 | Peer discovery / symmetric presence | Done | Host/join roles retired: one `LS_SCANNING` "open" state beacons *and* listens. Pick a player off the list to challenge; either side can initiate. Confirmed on hardware |
+| 2 | Player identity (name entry) | Open | Now the top gap in discovery — the nearby list shows a hex id, which can't distinguish two friends. Needs a `Packet` field + `PROTO_VERSION` bump |
 | 2 | Version-mismatch UX | Open | Not started |
 | 3 | Visual confirmation (HP bars, flee prompt) | Done | HP/MP bars, hit/heal flash, and pairing confirmed in a real 2-unit match; flee prompt itself not exercised this run |
 | 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
@@ -42,7 +43,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 4 | EU frequency + duty cycle | Open | Only urgent before a unit goes on air outside US/AU |
 | 4 | Power management | Open | Not started, untested |
 | 4 | OTA firmware updates | Open | WiFi OTA vs. LoRa OTA unresolved; intended as reusable beyond this project |
-| 5 | Radio-first mechanics (proximity/breadcrumb/intercept) | Open | Unscoped — needs a passive-scan design pass before any sub-idea is plan-ready |
+| 5 | Radio-first mechanics (proximity/breadcrumb/intercept) | Partly unblocked | The passive-scan mechanism it was waiting on now exists (sighting log with RSSI). "Enemy detected" is largely landed as the nearby-players list; breadcrumb still needs persistence, intercept still unscoped |
 
 ## 1. Finish the combat loop (touches `rpg_link.*` — the tested core)
 
@@ -227,18 +228,18 @@ Idea surfaced from outside review: instead of hiding the radio, make its
 physical properties — beacons, RSSI, "someone was in range" — part of the
 game itself. Unscoped; recorded here so it isn't lost, not because it's next.
 
-All three flavors below read from the same underlying mechanism, so this is
-one design task, not three: a passive scan state where a unit at LS_IDLE (or
-a new `LS_SCANNING`) keeps listening and logs `(src id, RSSI, timestamp)` for
-any `PKT_BEACON` it overhears, whether or not it ever joins that beacon. No
-new wire packet types needed for the first two ideas below — `PKT_BEACON`
-already exists and already carries a commit and an id.
+All three flavors read from the same underlying mechanism, and **that
+mechanism now exists**: `LS_SCANNING` logs `(hostId, commit, RSSI,
+lastSeenAt)` per `Sighting` for every `PKT_BEACON` overheard, with expiry, and
+no new wire packet types were needed. What's left below is what to *do* with
+that log beyond listing it.
 
-- **"Enemy detected — distance ~400m, signal weak."** A live beacon read back
-  as a bucketed RSSI-to-strength label (weak/medium/strong), not real
-  ranging — the UI text has to stay honest about that, no false precision.
-  The most settled of the three; mostly a `Session`/UI job once the scan
-  state exists.
+- ~~**"Enemy detected — distance ~400m, signal weak."**~~ Largely landed as
+  the nearby-players list: a live beacon read back as a bucketed
+  RSSI-to-strength label (weak/ok/strong), deliberately not real ranging.
+  Thresholds in `CardputerUi::rssiBucket()` are a first guess, never
+  calibrated against measured link quality — worth revisiting with real
+  distance data before any UI claims more precision than "strong/ok/weak".
 - **"A player passed through here 3 hours ago."** Same sighting log, read
   back later instead of live. Needs the sighting log to survive a reboot —
   first persistence this project would have, same NVS/`Preferences.h` need

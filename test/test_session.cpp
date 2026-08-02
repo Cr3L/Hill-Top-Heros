@@ -82,9 +82,9 @@ static void testDeadPeerTerminates() {
   printf("peer goes silent: both sides give up, neither hangs\n");
   Rig r;
   r.begin(3);
-  // Everything from the joiner vanishes once the handshake is under way. The
-  // JOIN_REQ itself must get through, or the host never leaves LS_BEACONING and
-  // the scenario never actually starts.
+  // Everything from the challenger vanishes once the handshake is under way.
+  // The JOIN_REQ itself must get through, or the other side never leaves
+  // LS_SCANNING and the scenario never actually starts.
   bool started = false;
   r.ch.filter = [&started](Packet& p, int from) {
     if (started && from == 1) return false;
@@ -380,7 +380,7 @@ static void testLossSweep() {
       // correct behaviour rather than a hang — at 50% loss the handshake
       // sometimes never gets off the ground at all.
       if (!r.bothDone() && r.host.peerId() == 0 &&
-          r.host.state() == LS_BEACONING) {
+          r.host.state() == LS_SCANNING) {
         abandoned++;
         continue;
       }
@@ -459,6 +459,271 @@ static void testSessionReachesTurnCap() {
   CHECK(capped == 40);
 }
 
+// ------------------------------------------------------------------- scanning
+
+// These drive both peers by hand rather than through Rig::begin(): reset the
+// channel, begin() both sessions, startScanning() each, and set
+// autoPair=false so run()'s stand-in human doesn't pick someone off the list
+// before the test can inspect it. Rig::run() with autoPlay=false is still the
+// right loop to advance time with — nobody here reaches LS_MY_TURN before the
+// test takes over.
+// REGRESSION, found the moment host/join collapsed into one symmetric open
+// state. Both peers now beacon on the same period, so on a fixed interval
+// they transmit at the same instant, destroy each other in a collision, wait
+// the identical BEACON_MS, and collide again — forever, neither ever
+// appearing in the other's list. Discovery is mutual here, so this asserts
+// BOTH directions, and it is the reason pumpBeacon()'s jitter is not gated
+// on setJitter().
+static void testTwoOpenPeersDiscoverEachOther() {
+  printf("scanning: two open peers both discover each other (no beacon lockstep)\n");
+  Rig r;
+  r.ch.reset(20);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;
+
+  r.run(12000, /*autoPlay=*/false);
+
+  CHECKM(r.join.sightingCount() == 1, "join saw %zu peers, expected 1",
+         r.join.sightingCount());
+  CHECKM(r.host.sightingCount() == 1, "host saw %zu peers, expected 1",
+         r.host.sightingCount());
+  CHECK(r.join.sighting(0).hostId == r.host.myId());
+  CHECK(r.host.sighting(0).hostId == r.join.myId());
+  // Neither side auto-paired: presence is not an invitation.
+  CHECK(r.join.state() == LS_SCANNING);
+  CHECK(r.host.state() == LS_SCANNING);
+}
+
+// Either side can be the one who initiates — there is no host-only seat any
+// more. This is the mirror of testJoinSightingPairs: the peer that would once
+// have been "the host" is the one who picks and challenges.
+static void testEitherSideCanChallenge() {
+  printf("scanning: the other side can initiate the challenge too\n");
+  Rig r;
+  r.ch.reset(21);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;
+
+  r.run(12000, /*autoPlay=*/false);
+  CHECKM(r.host.sightingCount() == 1, "host saw %zu peers, expected 1",
+         r.host.sightingCount());
+
+  r.host.joinSighting(r.join.myId());   // host initiates, for once
+  CHECK(r.host.state() == LS_HANDSHAKE);
+  CHECK(r.host.peerId() == r.join.myId());
+
+  r.run(90000);
+  CHECKM(r.bothDone(), "host=%s join=%s", linkStateName(r.host.state()),
+         linkStateName(r.join.state()));
+  CHECKM(outcomesAgree(r.host, r.join), "host '%s' join '%s'",
+         r.host.overMsg(), r.join.overMsg());
+  CHECK(!sawDesync(r));
+}
+
+// Symmetry hazard with no equivalent in the old host/join world: both peers
+// pick each other in the same instant, so their JOIN_REQs cross on the wire
+// and both are challengers waiting on a JOIN_ACK neither would send. Without
+// the id tie-break in handlePacket's PKT_JOIN_REQ case both sides grind out
+// their retry budget and report "peer unreachable" on a link that is
+// perfectly healthy.
+static void testSimultaneousMutualChallenge() {
+  printf("scanning: simultaneous mutual challenge still pairs\n");
+  Rig r;
+  r.ch.reset(22);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;
+
+  r.run(12000, /*autoPlay=*/false);
+  CHECK(r.host.sightingCount() == 1);
+  CHECK(r.join.sightingCount() == 1);
+
+  // The crossing pair, issued back to back with no polling in between.
+  r.host.joinSighting(r.join.myId());
+  r.join.joinSighting(r.host.myId());
+
+  r.run(90000);
+  CHECKM(r.bothDone(), "host=%s join=%s", linkStateName(r.host.state()),
+         linkStateName(r.join.state()));
+  CHECKM(decided(r.host) && decided(r.join),
+         "expected a real verdict, got host '%s' join '%s'",
+         r.host.overMsg(), r.join.overMsg());
+  CHECKM(outcomesAgree(r.host, r.join), "host '%s' join '%s'",
+         r.host.overMsg(), r.join.overMsg());
+  CHECK(!sawDesync(r));
+  // Exactly one of them ended up hosting.
+  CHECKM(r.host.isHost() != r.join.isHost(),
+         "both sides think isHost()==%d", (int)r.host.isHost());
+}
+
+// REGRESSION. lastRxAt_ used to be stamped once at startScanning() and never
+// refreshed while open, but the handshake watchdog measures against it. A
+// player reading the list for longer than PEER_TIMEOUT_MS — nothing hurries
+// them — would challenge someone and be told "peer timed out" on the very
+// next poll, on a link that was never anything but healthy. Impossible before
+// symmetry, when LS_JOINING auto-joined the first beacon it heard with no
+// human pause in between.
+static void testLongBrowseThenChallengeStillPairs() {
+  printf("scanning: browsing past the peer timeout then challenging still pairs\n");
+  Rig r;
+  r.ch.reset(23);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;
+
+  // Sit on the list well past the watchdog deadline, as a slow human would.
+  r.run(Session::PEER_TIMEOUT_MS + 10000, /*autoPlay=*/false);
+  CHECKM(r.join.state() == LS_SCANNING, "join left the list on its own: %s",
+         linkStateName(r.join.state()));
+  CHECKM(r.join.sightingCount() == 1, "expected 1 sighting, got %zu",
+         r.join.sightingCount());
+
+  r.join.joinSighting(r.host.myId());
+  r.run(90000);
+
+  CHECKM(r.bothDone(), "host=%s join=%s", linkStateName(r.host.state()),
+         linkStateName(r.join.state()));
+  CHECKM(decided(r.host) && decided(r.join),
+         "expected a real verdict, got host '%s' join '%s'",
+         r.host.overMsg(), r.join.overMsg());
+  CHECK(outcomesAgree(r.host, r.join));
+  CHECK(!sawDesync(r));
+}
+
+static void testScanSeesBeaconingHost() {
+  printf("scanning: sees a beaconing host's id and rssi, without joining\n");
+  Rig r;
+  r.ch.reset(10);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;   // these tests drive selection themselves
+  r.ch.rssiOf[0] = -55;   // host's signal as heard by the joiner
+
+  r.run(5000, /*autoPlay=*/false);   // long enough for two beacons (BEACON_MS = 2000)
+
+  CHECKM(r.join.sightingCount() == 1, "expected 1 sighting, got %zu",
+         r.join.sightingCount());
+  CHECKM(r.join.sighting(0).hostId == r.host.myId(),
+         "sighting id 0x%x != host id 0x%x", r.join.sighting(0).hostId,
+         r.host.myId());
+  CHECKM(r.join.sighting(0).rssi == -55, "rssi %d != -55",
+         r.join.sighting(0).rssi);
+  // Still just listening — no handshake was ever started.
+  CHECK(r.join.state() == LS_SCANNING);
+  CHECK(r.join.peerId() == 0);
+  CHECK(r.host.state() == LS_SCANNING);
+}
+
+static void testScanSightingExpires() {
+  printf("scanning: a host that stops beaconing falls off the list\n");
+  Rig r;
+  r.ch.reset(11);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;   // these tests drive selection themselves
+
+  r.run(3000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() == 1, "expected 1 sighting before expiry, got %zu",
+         r.join.sightingCount());
+
+  r.host.rematch(0xCCCC3333);   // leaves LS_SCANNING; beacons stop
+  r.run(Session::SCAN_EXPIRY_MS + 2000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() == 0,
+         "stale sighting did not expire, count=%zu", r.join.sightingCount());
+}
+
+static void testJoinSightingPairs() {
+  printf("scanning: joinSighting() pairs with the selected host\n");
+  Rig r;
+  r.ch.reset(12);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;   // these tests drive selection themselves
+
+  r.run(3000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() == 1, "expected 1 sighting, got %zu",
+         r.join.sightingCount());
+
+  r.join.joinSighting(r.host.myId());
+  CHECK(r.join.state() == LS_HANDSHAKE);
+  CHECK(r.join.peerId() == r.host.myId());
+
+  r.run(90000);
+  CHECKM(r.bothDone(), "host=%s join=%s", linkStateName(r.host.state()),
+         linkStateName(r.join.state()));
+  CHECKM(outcomesAgree(r.host, r.join), "host '%s' join '%s'",
+         r.host.overMsg(), r.join.overMsg());
+  CHECK(!sawDesync(r));
+}
+
+// Regression: joinSighting() used to take a raw array index, and
+// pumpScanExpiry()'s swap-remove reorders sightings_ on expiry — a sighting
+// picked before another one expires could silently resolve to whatever slid
+// into that slot, joining the wrong host. Keyed by hostId now; an expired
+// selection must be a safe no-op, not a wrong pairing.
+static void testJoinSightingExpiredIsNoOp() {
+  printf("scanning: joining a sighting that expired before confirm is a no-op\n");
+  Rig r;
+  r.ch.reset(14);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;   // these tests drive selection themselves
+
+  r.run(3000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() == 1, "expected 1 sighting, got %zu",
+         r.join.sightingCount());
+  uint32_t staleId = r.join.sighting(0).hostId;
+
+  r.host.rematch(0xCCCC3333);   // stops beaconing; the sighting will expire
+  r.run(Session::SCAN_EXPIRY_MS + 2000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() == 0, "sighting did not expire, count=%zu",
+         r.join.sightingCount());
+
+  r.join.joinSighting(staleId);
+  CHECKM(r.join.state() == LS_SCANNING,
+         "expired join must not pair — state is %s",
+         linkStateName(r.join.state()));
+  CHECK(r.join.peerId() == 0);
+}
+
+static void testScanCancelLeavesCleanState() {
+  printf("scanning: cancel returns to idle with no leaked handshake\n");
+  Rig r;
+  r.ch.reset(13);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;   // these tests drive selection themselves
+
+  r.run(3000, /*autoPlay=*/false);
+  CHECKM(r.join.sightingCount() >= 1, "expected at least 1 sighting, got %zu",
+         r.join.sightingCount());
+
+  r.join.cancelScan();
+  CHECK(r.join.state() == LS_IDLE);
+  CHECK(r.join.sightingCount() == 0);
+  CHECK(r.join.peerId() == 0);
+}
+
 // --------------------------------------------------------- move timer
 
 // Found on real hardware: nobody presses a key, so this exercises
@@ -492,6 +757,15 @@ int main() {
   testLossSweep();
   testSessionReachesTurnCap();
   testMoveTimerAutoAttacks();
+  testTwoOpenPeersDiscoverEachOther();
+  testEitherSideCanChallenge();
+  testSimultaneousMutualChallenge();
+  testLongBrowseThenChallengeStillPairs();
+  testScanSeesBeaconingHost();
+  testScanSightingExpires();
+  testJoinSightingPairs();
+  testJoinSightingExpiredIsNoOp();
+  testScanCancelLeavesCleanState();
 
   return testSummary("all session tests passed");
 }

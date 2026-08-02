@@ -19,19 +19,36 @@ bit-identical forever — so every action packet also carries the sender's
 pre-turn state hash, and any mismatch voids the match immediately rather than
 letting the two screens quietly drift apart.
 
+There is no host/join role to choose. A unit that is **open** beacons its own
+presence and listens for everyone else's at the same time, so opening the game
+is all it takes to be findable. Both peers below are symmetric right up until
+one of them picks the other off its list — whoever does becomes the challenger,
+and the peer that accepts takes the host seat.
+
 ```
-host                                    joiner
-  |-- BEACON (commit to my seed half) -->|      every 2s
-  |<------- JOIN_REQ (my half) ----------|
-  |-- JOIN_ACK (reveal my half) -------->|      joiner checks it against commit
+accepter (open)                         challenger (open)
+  |-- BEACON (commit to my seed half) -->|      every ~2s, jittered, BOTH ways
+  |<------- JOIN_REQ (my half) ----------|      sent when a player picks
+  |-- JOIN_ACK (reveal my half) -------->|      challenger checks it vs. commit
   |<--------- READY ---------------------|
   |                                      |
   |<====== ACTION + stateHash =========>|      per turn, both directions
 ```
 
-The seed is agreed by **commit-reveal**: the host broadcasts a commitment to its
-seed half and only reveals the half in `JOIN_ACK`, so a joiner cannot see the
-host's contribution and then pick its own to steer the result. It's 64 bits of
+Beacons are jittered per device, and that is load-bearing rather than tidy: two
+open units on an identical period transmit at the same instant, destroy each
+other in a collision, wait the same interval and collide again — forever,
+neither ever appearing in the other's list.
+
+If both players pick each other in the same instant their `JOIN_REQ`s cross, and
+both would sit waiting for a `JOIN_ACK` neither is going to send. A tie-break
+both sides evaluate identically on the same two ids (higher id yields and takes
+the host seat) means exactly one of them switches seats and the handshake
+completes.
+
+The seed is agreed by **commit-reveal**: the accepter broadcasts a commitment to
+its seed half and only reveals the half in `JOIN_ACK`, so the challenger cannot
+see that contribution and then pick its own to steer the result. It's 64 bits of
 truncated SHA-256 — enough that grinding a favourable preimage isn't worth it on
 this hardware, not a serious cryptographic commitment.
 
@@ -39,12 +56,16 @@ this hardware, not a serious cryptographic commitment.
 
 | Where | Key | Does |
 | --- | --- | --- |
-| Idle | `h` / `j` / `p` | Host a duel / join one / practice vs. CPU |
+| Idle | `o` / `p` | Go open (find nearby players) / practice vs. CPU |
 | Class pick | `1` `2` `3` `4` | Choose your class; `q` cancels back to idle |
+| Nearby players | `1`…`9` | Challenge that player; `q` stops looking |
 | Your turn | `1` `2` `3` `4` | Attack / Guard / Skill / Item |
 | Your turn | `5` | Flee — forfeits the match immediately |
-| Match over | `r` | Rematch, same role and class, fresh seed |
-| Match over | `q` | Back to the host/join menu |
+| Match over | `r` | Rematch: straight back to open, same class, fresh seed |
+| Match over | `q` | Back to the main menu |
+
+The corner tag reads `OPEN` while you're discoverable, then `HOST`/`JOIN` once
+paired — informational only, since nobody chooses which one they get.
 
 Fleeing is an unconditional forfeit, not an escape chance: it needs no RNG, so
 both peers agree the instant the packet lands rather than waiting on a

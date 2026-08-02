@@ -229,7 +229,7 @@ Cardputer ADV with the official **Cap LoRa-1262**.
 
 ### Confirmed on hardware
 
-Boot reports `radio.begin=0 ioe=1`, and `h`/`j` drive the state machine.
+Boot reports `radio.begin=0 ioe=1`, and `o`/`p` drive the state machine.
 
 **Two units have paired over actual RF.** Host and joiner reached `T0` with
 matching combatant state on both screens — beacon, join, commit-reveal and sim
@@ -246,6 +246,13 @@ Still not confirmed: recovery from a mid-match packet loss/rejoin — the
 split-verdict numbers in `test/test_session.cpp` remain simulation only, and
 40-50ft indoors is not a stress test of maximum range, obstructions, or RF
 interference.
+
+**Symmetric peer discovery works on real radios.** Two units, each simply
+opened (no host/join role — that choice no longer exists), found each other in
+their nearby-players lists and paired into a full match from a list pick.
+Confirms on hardware what the sim asserts: beacon jitter actually prevents the
+two-open-peers collision lockstep, and mutual discovery works in both
+directions rather than one unit seeing the other but not vice versa.
 
 **The pinout and the panel geometry live in `README.md`** — one copy, don't
 restate them here. What matters when editing `main.cpp` is which parts of that

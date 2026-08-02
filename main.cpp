@@ -60,7 +60,7 @@ struct RadioTransport : Transport {
     radio.startReceive();
   }
 
-  bool recv(Packet& out) override {
+  bool recv(Packet& out, int16_t* rssi) override {
     if (!gRadioOk || !rxFlag) return false;
     rxFlag = false;
     if (radio.getPacketLength() != sizeof(Packet)) {   // TxDone, or a stray
@@ -68,6 +68,7 @@ struct RadioTransport : Transport {
       return false;
     }
     int st = radio.readData((uint8_t*)&out, sizeof(Packet));
+    if (st == RADIOLIB_ERR_NONE && rssi) *rssi = (int16_t)radio.getRSSI();
     radio.startReceive();
     return st == RADIOLIB_ERR_NONE;    // the session checks CRC and version
   }
@@ -150,11 +151,16 @@ struct CardputerUi : SessionUi {
       char v[8];
       snprintf(v, sizeof(v), "v%u", PROTO_VERSION);
       g.drawString(v, g.width(), g.height());
-      // Role only means anything once one's been picked (LS_IDLE has no
-      // host/joiner yet) — same corner-tag pattern as the version number.
+      // While open, the useful fact is "you are discoverable"; once paired,
+      // it's which side ended up challenging vs. accepting (informational —
+      // nobody chooses it any more). LS_IDLE has neither. Same corner-tag
+      // pattern as the version number.
       if (ui.s && ui.s->state() != LS_IDLE) {
         g.setTextDatum(textdatum_t::bottom_left);
-        g.drawString(ui.s->isHost() ? "HOST" : "JOIN", 0, g.height());
+        g.drawString(ui.s->state() == LS_SCANNING ? "OPEN"
+                     : ui.s->isHost()             ? "HOST"
+                                                  : "JOIN",
+                     0, g.height());
       }
       g.setTextDatum(textdatum_t::top_left);
       g.setTextSize(ui.kBodyTextSize);
@@ -173,8 +179,7 @@ struct CardputerUi : SessionUi {
     // (tools/designs/main_menu.json), so booting doesn't drop straight into
     // what reads like a diagnostic screen. The two mockups are separate
     // drafts but there is only one LS_IDLE state to draw them from, so both
-    // land in this one call — title on top, the (real, Host/Join-only) menu
-    // below it.
+    // land in this one call — title on top, the menu below it.
     if (s && s->state() == LS_IDLE) {
       // A rematch rerolls classes, so the previous match's HP is meaningless
       // here — reset so the new match's first draw doesn't flash on a value
@@ -186,7 +191,7 @@ struct CardputerUi : SessionUi {
       d.g.drawString("HILL-TOP HEROS", kPanelW / 2, 40);
       d.g.setTextDatum(textdatum_t::top_left);
       d->setCursor(12, 76);
-      d->println(line);
+      d->println("O=open - find players");
       d->println("P=practice (1 player)");
       if (note) {
         d->setCursor(12, 112);
@@ -420,6 +425,33 @@ struct CardputerUi : SessionUi {
     d->println("Q=cancel");
   }
 
+  // Coarse RSSI bucket for display — the exact dBm number means little to a
+  // player, "strong/ok/weak" does. Thresholds are a starting guess, not
+  // calibrated against real link-quality data yet.
+  static const char* rssiBucket(int16_t rssi) {
+    if (rssi >= -80) return "strong";
+    if (rssi >= -100) return "ok";
+    return "weak";
+  }
+
+  void scanResults() {
+    Frame d(*this);
+    d.g.setTextDatum(textdatum_t::top_center);
+    d.g.drawString("NEARBY PLAYERS", kPanelW / 2, 0);
+    d.g.setTextDatum(textdatum_t::top_left);
+    d->setCursor(0, 20);
+    if (!s || s->sightingCount() == 0) {
+      d->println("open - looking...");
+    } else {
+      for (size_t i = 0; i < s->sightingCount(); i++) {
+        const Sighting& sg = s->sighting(i);
+        d->printf("%u) %04X - %s\n", (unsigned)(i + 1),
+                  (unsigned)(sg.hostId & 0xFFFF), rssiBucket(sg.rssi));
+      }
+    }
+    d->println("Q=cancel");
+  }
+
   // Local single-device demo: renders straight from a BattleState the caller
   // owns in main.cpp, bypassing Session/Transport entirely. The human is
   // always slot 0 — there's no host/joiner concept with one device — and
@@ -468,8 +500,12 @@ static Rng gPracticeBotRng;
 // Lives here rather than as a LinkState because it's not part of the match
 // protocol at all — Session doesn't need to know a pick is in progress, only
 // the classId it ends with (see Session::onKey's LS_IDLE comment).
-enum PendingAction { PA_NONE, PA_HOST, PA_JOIN, PA_PRACTICE };
+enum PendingAction { PA_NONE, PA_OPEN, PA_PRACTICE };
 static PendingAction gPendingAction = PA_NONE;
+// LS_SCANNING has no per-keypress redraw to piggyback on — sightings arrive
+// on their own schedule — so the list is redrawn when Session::sightingsVersion()
+// changes rather than on a fixed timer, to skip repainting an unchanged screen.
+static uint32_t gLastScanVersion = 0;
 
 static ActionId practiceBotChoose(const BattleState& b) {
   const Combatant& me = b.p[1];
@@ -539,13 +575,19 @@ void loop() {
   M5Cardputer.update();
   if (!gPracticeOn) gSession.poll();
 
+  if (gSession.state() == LS_SCANNING &&
+      gSession.sightingsVersion() != gLastScanVersion) {
+    gLastScanVersion = gSession.sightingsVersion();
+    gUi.scanResults();
+  }
+
   if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
     auto ks = M5Cardputer.Keyboard.keysState();
     for (auto c : ks.word) {
       if (gPracticeOn) {
         int winner = battleWinner(gPracticeBattle);
         if (winner >= 0) {
-          if (c == 'q') { gPracticeOn = false; gUi.status("H=host  J=join"); }
+          if (c == 'q') { gPracticeOn = false; gUi.status(""); }
         } else if (c >= '1' && c <= '5') {
           ActionId my = (ActionId)(c - '0');
           battleResolve(gPracticeBattle, my, practiceBotChoose(gPracticeBattle));
@@ -556,20 +598,18 @@ void loop() {
 
       if (gPendingAction != PA_NONE) {
         if (c == 'q') {
-          // Only reachable from LS_IDLE (see below), so this always returns
-          // to the same idle screen the pick was entered from.
           gPendingAction = PA_NONE;
-          gUi.status("H=host  J=join");
+          gUi.status("");            // LS_IDLE draws its own menu text
           break;
         }
         if (c < '1' || c > '4') break;
         uint8_t classId = (uint8_t)(c - '1');
         PendingAction action = gPendingAction;
         gPendingAction = PA_NONE;
-        if (action == PA_HOST) {
-          gSession.startHosting(classId);
-        } else if (action == PA_JOIN) {
-          gSession.startJoining(classId);
+        if (action == PA_OPEN) {
+          gSession.startScanning(classId);
+          gLastScanVersion = gSession.sightingsVersion();
+          gUi.scanResults();
         } else {  // PA_PRACTICE
           battleInit(gPracticeBattle, esp_random(), classId,
                      (uint8_t)(esp_random() % classCount()));
@@ -584,14 +624,29 @@ void loop() {
 
       LinkState before = gSession.state();
       if (gSession.state() == LS_OVER) {
-        if (c == 'r') gSession.rematchKeepingRole(esp_random());
-        else if (c == 'q') gSession.rematch(esp_random());  // back to the menu
-      } else if (gSession.state() == LS_IDLE &&
-                 (c == 'p' || c == 'h' || c == 'j')) {
-        gPendingAction = c == 'p' ? PA_PRACTICE : c == 'h' ? PA_HOST : PA_JOIN;
+        if (c == 'r') {
+          gSession.rematchAndReopen(esp_random());
+          gLastScanVersion = gSession.sightingsVersion();
+          gUi.scanResults();
+        } else if (c == 'q') {
+          gSession.rematch(esp_random());   // back to the menu
+        }
+      } else if (gSession.state() == LS_IDLE && (c == 'p' || c == 'o')) {
+        gPendingAction = c == 'p' ? PA_PRACTICE : PA_OPEN;
         gUi.classSelect();
         break;  // entering the pick screen is a transition too, even though
                 // gSession's own state doesn't move
+      } else if (gSession.state() == LS_SCANNING) {
+        if (c == 'q') {
+          gSession.cancelScan();
+        } else if (c >= '1' && c <= '9') {
+          size_t idx = (size_t)(c - '1');
+          // Captured as an id, not an index: expiry can reorder the table
+          // between this draw and the next.
+          if (idx < gSession.sightingCount())
+            gSession.joinSighting(gSession.sighting(idx).hostId);
+        }
+        break;
       } else {
         gSession.onKey(c);
       }

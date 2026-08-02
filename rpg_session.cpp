@@ -4,8 +4,7 @@
 const char* linkStateName(LinkState s) {
   switch (s) {
     case LS_IDLE:      return "IDLE";
-    case LS_BEACONING: return "BEACONING";
-    case LS_JOINING:   return "JOINING";
+    case LS_SCANNING:  return "SCANNING";
     case LS_HANDSHAKE: return "HANDSHAKE";
     case LS_MY_TURN:   return "MY_TURN";
     case LS_WAIT_PEER: return "WAIT_PEER";
@@ -48,6 +47,7 @@ void Session::resetMatchState() {
   pendingTries_  = 0;
   lastRxAt_      = 0;
   lastBeacon_    = 0;
+  beaconDelay_   = BEACON_MS;
   turnStartAt_   = 0;
   overMsg_       = "";
   versionMismatchShown_ = false;
@@ -64,35 +64,58 @@ void Session::begin(uint32_t id, uint32_t seed) {
   mySeed_ = seed;
   netRng_.seed(myId_);                 // distinct jitter stream per device
   state_  = LS_IDLE;
-  ui_.status("H=host  J=join");
+  ui_.status("P=practice  O=open");
 }
 
 void Session::rematch(uint32_t seed) {
   begin(myId_, seed);
 }
 
-void Session::rematchKeepingRole(uint32_t seed) {
-  bool wasHost = isHost_;
+void Session::rematchAndReopen(uint32_t seed) {
   uint8_t classId = myClassId_;
   rematch(seed);
-  if (wasHost) startHosting(classId);
-  else         startJoining(classId);
+  startScanning(classId);
 }
 
-void Session::startHosting(uint8_t classId) {
-  state_    = LS_BEACONING;
-  isHost_   = true;
+void Session::startScanning(uint8_t classId) {
+  state_    = LS_SCANNING;
   myClassId_ = classId;
+  sightingCount_ = 0;
   lastRxAt_ = clk_.now();
-  ui_.status("hosting...");
+  ui_.status("open...");
 }
 
-void Session::startJoining(uint8_t classId) {
-  state_    = LS_JOINING;
-  isHost_   = false;
-  myClassId_ = classId;
+void Session::cancelScan() {
+  if (state_ != LS_SCANNING) return;
+  state_ = LS_IDLE;
+  sightingCount_ = 0;
+  ui_.status("P=practice  O=open");
+}
+
+void Session::joinSighting(uint32_t hostId) {
+  if (state_ != LS_SCANNING) return;   // e.g. a challenge landed first
+  const Sighting* sg = nullptr;
+  for (size_t i = 0; i < sightingCount_; i++)
+    if (sightings_[i].hostId == hostId) { sg = &sightings_[i]; break; }
+  if (!sg) return;   // expired between selection and confirmation
+
+  peerId_    = sg->hostId;
+  isHost_    = false;
+  memcpy(peerCommit_, sg->commit, sizeof(peerCommit_));
+  sightingCount_ = 0;
+  // The handshake watchdog measures silence from the peer, and it starts
+  // counting now — not from whenever this device went open. A player can sit
+  // reading the list for longer than PEER_TIMEOUT_MS (nothing hurries them),
+  // and without this the very first poll after challenging would declare a
+  // perfectly healthy peer "timed out".
   lastRxAt_ = clk_.now();
-  ui_.status("searching...");
+
+  Packet j{};
+  j.type = PKT_JOIN_REQ; j.dst = peerId_; j.seedHalf = mySeed_;
+  j.classId = myClassId_;
+  txPacket(j, true, PKT_JOIN_ACK);
+  state_ = LS_HANDSHAKE;
+  ui_.status("challenging...");
 }
 
 // --------------------------------------------------------------------- send
@@ -214,10 +237,19 @@ void Session::seenRecord(uint32_t src, uint16_t seq) {
   seenAt_ = (uint8_t)((seenAt_ + 1) % SEEN_SLOTS);
 }
 
-void Session::handlePacket(const Packet& p) {
+void Session::handlePacket(const Packet& p, int16_t rssi) {
   if (p.dst != 0 && p.dst != myId_) return;             // not for us
   if (peerId_ && p.src != peerId_) return;              // paired: peer only
   if (p.src == myId_) return;                           // our own echo
+
+  // While open, another open device's beacon is presence, not an invitation:
+  // record it and stop. Never auto-joins — the player picks from the list.
+  // Everything else (notably an incoming PKT_JOIN_REQ, i.e. someone else
+  // picking US off their list) falls through and is handled normally.
+  if (state_ == LS_SCANNING && p.type == PKT_BEACON) {
+    recordSighting(p.src, p.commit, rssi);
+    return;
+  }
 
   if (peerId_) lastRxAt_ = clk_.now();
 
@@ -242,29 +274,36 @@ void Session::handlePacket(const Packet& p) {
   if (p.type != PKT_BEACON && p.type != PKT_ACTION) sendAck(p.seq, p.src);
 
   switch (p.type) {
+    // Beacons outside LS_SCANNING are just other open devices we aren't
+    // looking at right now — recorded above while open, ignored otherwise.
     case PKT_BEACON:
-      if (state_ == LS_JOINING && !peerId_) {
-        peerId_ = p.src;
-        isHost_ = false;
-        memcpy(peerCommit_, p.commit, sizeof(peerCommit_));
-        Packet j{};
-        j.type = PKT_JOIN_REQ; j.dst = peerId_; j.seedHalf = mySeed_;
-        j.classId = myClassId_;
-        txPacket(j, true, PKT_JOIN_ACK);
-        state_ = LS_HANDSHAKE;
-        ui_.status("joining...");
-      }
       break;
 
     case PKT_JOIN_REQ:
-      // Also accepted while already in LS_HANDSHAKE: that means our JOIN_ACK
-      // was lost and the joiner is asking again. Re-send it.
-      if (state_ == LS_BEACONING ||
-          (state_ == LS_HANDSHAKE && isHost_ && p.src == peerId_)) {
+      // Accepted while open — someone picked us off their list. Also accepted
+      // while already in LS_HANDSHAKE and hosting: that means our JOIN_ACK was
+      // lost and the challenger is asking again. Re-send it.
+      //
+      // The third case only exists because presence is symmetric now: two
+      // open peers can pick each other in the same instant, and their
+      // JOIN_REQs cross on the wire. Both are then challengers
+      // (isHost_ == false) waiting on a JOIN_ACK neither will ever send, and
+      // both grind to "peer unreachable". Broken by a rule both sides
+      // evaluate identically on the same two ids: the higher id yields and
+      // becomes the host, so exactly one of them switches seats and the
+      // handshake completes. Ids are device-unique (deviceId() in main.cpp),
+      // and p.src == myId_ was already rejected at the top of handlePacket.
+      if (state_ == LS_SCANNING ||
+          (state_ == LS_HANDSHAKE && isHost_ && p.src == peerId_) ||
+          (state_ == LS_HANDSHAKE && !isHost_ && p.src == peerId_ &&
+           myId_ > p.src)) {
         peerId_   = p.src;
         isHost_   = true;
         peerSeed_ = p.seedHalf;
         peerClassId_ = p.classId;
+        sightingCount_ = 0;            // no longer relevant once paired
+        lastRxAt_ = clk_.now();        // watchdog starts here, not at open
+
         Packet a{};
         a.type = PKT_JOIN_ACK; a.dst = peerId_; a.seedHalf = mySeed_;
         a.classId = myClassId_;
@@ -431,12 +470,13 @@ void Session::handlePacket(const Packet& p) {
 
 void Session::pumpRx() {
   Packet p{};
-  while (tx_.recv(p)) {
+  int16_t rssi = 0;
+  while (tx_.recv(p, &rssi)) {
     if (packetValid(p)) {
-      handlePacket(p);
+      handlePacket(p, rssi);
     } else if (!versionMismatchShown_ && packetVersionMismatch(p) &&
-               (state_ == LS_IDLE || state_ == LS_BEACONING ||
-                state_ == LS_JOINING || state_ == LS_HANDSHAKE)) {
+               (state_ == LS_IDLE || state_ == LS_SCANNING ||
+                state_ == LS_HANDSHAKE)) {
       // Only before/during pairing: this is the "why can't I find my peer"
       // moment version skew actually blocks. Mid-match it would just be
       // stray traffic, not something to interrupt a live battle over. Once
@@ -495,13 +535,56 @@ void Session::pumpLinger() {
 }
 
 void Session::pumpBeacon() {
-  if (state_ != LS_BEACONING) return;
-  if (lastBeacon_ && clk_.now() - lastBeacon_ < BEACON_MS) return;
-  lastBeacon_ = clk_.now();
+  // Open == beaconing. An open device advertises itself the whole time it is
+  // also listening, so anyone else who opens the game can see it without
+  // either side having chosen a role.
+  if (state_ != LS_SCANNING) return;
+  // Jittered, and it is load-bearing here in a way it was not when only one
+  // side beaconed: two symmetric open devices on a fixed period transmit at
+  // the same instant, destroy each other in a collision, wait the same
+  // BEACON_MS, and collide again — forever, neither ever seeing the other.
+  // netRng_ is seeded per-device (begin()) so the two schedules diverge.
+  // Never the battle rng: that would desync the match (see CLAUDE.md).
+  // Deliberately NOT gated on jitter_: that hook exists to prove the retry
+  // backoff can be made constant, and switching beacons to lockstep along
+  // with it would just stop two open peers from ever finding each other.
+  if (lastBeacon_ && clk_.now() - lastBeacon_ < beaconDelay_) return;
+  lastBeacon_  = clk_.now();
+  beaconDelay_ = BEACON_MS + netRng_.range(0, BEACON_JITTER_MS);
   Packet b{};
   b.type = PKT_BEACON; b.dst = 0;
   seedCommit(mySeed_, b.commit);       // commitment only, never the half itself
   txPacket(b, false);
+}
+
+void Session::recordSighting(uint32_t hostId, const uint8_t* commit, int16_t rssi) {
+  for (size_t i = 0; i < sightingCount_; i++) {
+    if (sightings_[i].hostId == hostId) {
+      sightings_[i].rssi       = rssi;
+      sightings_[i].lastSeenAt = clk_.now();
+      memcpy(sightings_[i].commit, commit, sizeof(sightings_[i].commit));
+      return;
+    }
+  }
+  if (sightingCount_ >= SEEN_HOSTS) return;  // table full; drop until a slot expires
+  Sighting& sg = sightings_[sightingCount_++];
+  sg.hostId     = hostId;
+  sg.rssi       = rssi;
+  sg.lastSeenAt = clk_.now();
+  memcpy(sg.commit, commit, sizeof(sg.commit));
+  sightingsVersion_++;
+}
+
+void Session::pumpScanExpiry() {
+  if (state_ != LS_SCANNING) return;
+  for (size_t i = 0; i < sightingCount_; ) {
+    if (clk_.now() - sightings_[i].lastSeenAt > SCAN_EXPIRY_MS) {
+      sightings_[i] = sightings_[--sightingCount_];
+      sightingsVersion_++;
+    } else {
+      i++;
+    }
+  }
 }
 
 void Session::resolveTurn() {
@@ -563,6 +646,7 @@ void Session::poll() {
   pumpRetries();
   pumpWatchdog();
   pumpBeacon();
+  pumpScanExpiry();
   pumpResolve();
   pumpMoveTimer();
   pumpLinger();
@@ -572,10 +656,10 @@ void Session::poll() {
 
 void Session::onKey(char c) {
   switch (state_) {
-    // LS_IDLE has no key handling here: hosting/joining now need a
-    // player-chosen classId, which this single-char interface can't carry.
-    // main.cpp's class-pick gate calls startHosting()/startJoining()
-    // directly once a class is confirmed, without going through onKey().
+    // LS_IDLE and LS_SCANNING have no key handling here: opening needs a
+    // player-chosen classId and selecting a peer needs a host id, neither of
+    // which this single-char interface can carry. main.cpp calls
+    // startScanning()/joinSighting() directly instead.
     case LS_MY_TURN: {
       ActionId a = ACT_NONE;
       if (c == '1') a = ACT_ATTACK;
