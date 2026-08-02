@@ -8,10 +8,11 @@ picked up. Grouped by what's actually missing, checked against the code as of
 
 ## What exists today
 
-Two Cardputers, one duel: commit-reveal seed, lockstep sim, 4 classes, 5
-actions (attack/guard/skill/item/flee), turn cap, HP bars, rematch on `q`.
-That's the whole game. Everything below is what's not there yet, organized by
-how close it sits to the tested core.
+Two Cardputers, one duel: commit-reveal seed, lockstep sim, 4 player-chosen
+classes, 5 actions (attack/guard/skill/item/flee), turn cap, HP bars, an
+on-screen HOST/JOIN role tag, and a rematch prompt (`r` same role and class,
+`q` back to the menu). That's the whole game. Everything below is what's not
+there yet, organized by how close it sits to the tested core.
 
 ## Status at a glance
 
@@ -23,7 +24,7 @@ stand*. Update both together, same as everywhere else in this file.
 | --- | --- | --- | --- |
 | 1 | `ACT_FLEE` | Done | |
 | 1 | More classes / equipment / leveling | Shelved | Own `PROTO_VERSION` task, not started |
-| 1 | Player-chosen class (existing 4) | Done | `PROTO_VERSION` 4→5; class rides `PKT_JOIN_REQ`/`PKT_JOIN_ACK`, `battleInit()` takes explicit ids; pick screen wired in `main.cpp`. Host-suite + firmware build verified; not yet confirmed on hardware |
+| 1 | Player-chosen class (existing 4) | Done | `PROTO_VERSION` 4→5; class rides `PKT_JOIN_REQ`/`PKT_JOIN_ACK`, `battleInit()` takes explicit ids; pick screen wired in `main.cpp`. Confirmed on hardware: 5 matches played two-unit with distinct chosen classes |
 | 1 | Status effects | Shelved | Not started |
 | 1 | Balance beyond the 4-cycle | Shelved | Depends on player-chosen class landing first |
 | 2 | Rejoin after "peer unreachable" | Done | LS_LINGER + PKT_STATUS landed (sim-verified); both-sides-stuck sub-case deferred (livelock risk); real hardware disconnect test still open |
@@ -34,6 +35,7 @@ stand*. Update both together, same as everywhere else in this file.
 | 3 | Title/attract screen | Done | `GRAPHIC` art placeholder still empty |
 | 3 | 16-color palette | Done | `DIM`/`BORDER`/`SELECT`/`SPARE` slots drafted but not yet consumed by anything |
 | 3 | Hit/heal animation feedback | Done | Directional flash (HIT_FX/HEAL_FX), confirmed on hardware; true multi-frame fade/shake still open |
+| 3 | Post-match rematch prompt + host/joiner indicator | Done | `Session::rematchKeepingRole()`, `r`/`q` split at `LS_OVER`, persistent HOST/JOIN corner tag. Sourced from playtest feedback ("hard to play again", "hard to know who is hosting") |
 | 3 | Sound | Open | Blocked on checking whether the buzzer is even wired |
 | 3 | Match history | Open | Needs NVS persistence — first persistence this project would have |
 | 4 | Two-radio test | Done | Full match played to a verdict on real RF |
@@ -70,9 +72,10 @@ lockstep-determinism guarantee the suite already defends.
   literal port, since that mockup previews at a different text size (see the
   UI design workflow note above). Verified: `make -C test` (host suite,
   including a rewritten `testClassChoice` covering every class in both
-  seats) and `pio run` (firmware build) both green. Not yet confirmed on
-  hardware — a two-unit match with two explicitly different chosen classes
-  is a natural follow-up.
+  seats) and `pio run` (firmware build) both green. **Confirmed on
+  hardware**: two units played 5 matches back to back with distinct chosen
+  classes on each side — surfaced the two pieces of feedback the rematch/
+  role-indicator bullet below addresses.
 - **Status effects** (poison, stun, buffs). Nothing in `BattleState` models a
   multi-turn effect today; `guarding` is the only per-turn flag and it resets
   every turn. A real status system needs a duration field in `Combatant`,
@@ -161,6 +164,17 @@ Safe to build without touching anything the test suite defends.
   out of scope for this pass. Skill-specific feedback (as opposed to a
   generic hit/heal) also not attempted — nothing in `BattleState` currently
   distinguishes "how" damage/healing happened, only the resulting numbers.
+- ~~**Post-match rematch prompt + host/joiner indicator.**~~ Landed, straight
+  from the first on-hardware class-pick playtest: `LS_OVER` was `q`-only
+  (full reset back to the host/join menu, re-picking role and class every
+  time) and nothing on screen showed which unit was hosting. Added `r`
+  (`Session::rematchKeepingRole()` — captures `isHost_`/`myClassId_` before
+  `rematch()` clears them, then re-enters via the existing `startHosting`/
+  `startJoining`) alongside the untouched `q` path, a `"R=rematch  Q=menu"`
+  prompt on the verdict screen, and a persistent HOST/JOIN corner tag
+  (`Frame::~Frame()`, same pattern as the existing `v%u` version stamp).
+  UI/session-orchestration only, no `PROTO_VERSION` bump. Verified: `make -C
+  test` and `pio run` both green.
 - **Sound.** Unexplored entirely — unclear if the Cardputer ADV's buzzer (if
   any) is even wired in `platformio.ini`'s lib set. Needs a hardware check
   before it's schedulable.

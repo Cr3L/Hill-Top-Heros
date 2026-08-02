@@ -71,6 +71,14 @@ void Session::rematch(uint32_t seed) {
   begin(myId_, seed);
 }
 
+void Session::rematchKeepingRole(uint32_t seed) {
+  bool wasHost = isHost_;
+  uint8_t classId = myClassId_;
+  rematch(seed);
+  if (wasHost) startHosting(classId);
+  else         startJoining(classId);
+}
+
 void Session::startHosting(uint8_t classId) {
   state_    = LS_BEACONING;
   isHost_   = true;

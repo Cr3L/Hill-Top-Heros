@@ -150,6 +150,12 @@ struct CardputerUi : SessionUi {
       char v[8];
       snprintf(v, sizeof(v), "v%u", PROTO_VERSION);
       g.drawString(v, g.width(), g.height());
+      // Role only means anything once one's been picked (LS_IDLE has no
+      // host/joiner yet) — same corner-tag pattern as the version number.
+      if (ui.s && ui.s->state() != LS_IDLE) {
+        g.setTextDatum(textdatum_t::bottom_left);
+        g.drawString(ui.s->isHost() ? "HOST" : "JOIN", 0, g.height());
+      }
       g.setTextDatum(textdatum_t::top_left);
       g.setTextSize(ui.kBodyTextSize);
       if (ui.buffered) ui.canvas.pushSprite(0, 0);
@@ -186,6 +192,11 @@ struct CardputerUi : SessionUi {
         d->setCursor(12, 112);
         d->println(note);
       }
+      return;
+    }
+    if (s && s->state() == LS_OVER) {
+      d->println(line);                 // "you win" / "you lose" / "draw" / etc.
+      d->println("R=rematch  Q=menu");
       return;
     }
     d->println(line);
@@ -573,7 +584,8 @@ void loop() {
 
       LinkState before = gSession.state();
       if (gSession.state() == LS_OVER) {
-        if (c == 'q') gSession.rematch(esp_random());
+        if (c == 'r') gSession.rematchKeepingRole(esp_random());
+        else if (c == 'q') gSession.rematch(esp_random());  // back to the menu
       } else if (gSession.state() == LS_IDLE &&
                  (c == 'p' || c == 'h' || c == 'j')) {
         gPendingAction = c == 'p' ? PA_PRACTICE : c == 'h' ? PA_HOST : PA_JOIN;

@@ -38,10 +38,12 @@ this hardware, not a serious cryptographic commitment.
 
 | Where | Key | Does |
 | --- | --- | --- |
-| Idle | `h` / `j` | Host a duel / join one |
+| Idle | `h` / `j` / `p` | Host a duel / join one / practice vs. CPU |
+| Class pick | `1` `2` `3` `4` | Choose your class; `q` cancels back to idle |
 | Your turn | `1` `2` `3` `4` | Attack / Guard / Skill / Item |
 | Your turn | `5` | Flee — forfeits the match immediately |
-| Match over | `q` | Rematch, same device ID, fresh seed |
+| Match over | `r` | Rematch, same role and class, fresh seed |
+| Match over | `q` | Back to the host/join menu |
 
 Fleeing is an unconditional forfeit, not an escape chance: it needs no RNG, so
 both peers agree the instant the packet lands rather than waiting on a

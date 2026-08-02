@@ -81,6 +81,10 @@ class Session {
   // half of the battle seed and must come from a real entropy source.
   void begin(uint32_t id, uint32_t seed);
   void rematch(uint32_t seed);         // back to LS_IDLE, keeps the same id
+  // Rematch, then immediately re-enter the same role and class rather than
+  // waiting at the menu for a fresh host/join pick — the fast path off
+  // LS_OVER's "r" key.
+  void rematchKeepingRole(uint32_t seed);
 
   // classId is this device's player-chosen class (0..classCount()-1),
   // exchanged with the peer over PKT_JOIN_REQ/PKT_JOIN_ACK.
