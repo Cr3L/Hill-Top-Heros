@@ -165,8 +165,9 @@ The back-and-forth that works:
 Two things not to forget when reading or writing these drafts:
 
 - **Labels preview at the tool's fixed text-size-1 font (6×8px cells)**, but
-  most of this project's screens render at size 2 (12×16px) — see
-  `kPanelW`/`hpBar` and the `Frame` dtor in `main.cpp` for the real metrics.
+  this project's screens render at `kBodyTextSize` 1.5 (9×12px cells) — see
+  `kBodyTextSize`/`kBodyGlyphH` in `main.cpp` for the real metrics, and note
+  that the `Frame` dtor's corner tags are the one exception, drawn at size 1.
   A label placed in a draft is a position marker, not a true size preview;
   trust the **Region** boxes (plain pixel rectangles, size-agnostic) for
   spacing decisions instead.

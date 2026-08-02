@@ -147,7 +147,7 @@ Safe to build without touching anything the test suite defends.
 - ~~One consistent treatment across screens.~~ Landed: the four palette slots
   that were approved and then never wired (`DIM`/`BORDER`/`SELECT`/`SPARE`)
   now have names, every raw `TFT_*` literal in `main.cpp` goes through the
-  palette, and `heading()`/`footer()`/`restoreText()` give the idle, class
+  palette, and `heading()`/`hint()`/`restoreText()` give the idle, class
   select and nearby-players screens one shared title and key-hint treatment
   instead of the three they had grown independently. `SPARE` is still unused
   — it is a spare, not a gap. Checked on a real panel, which settles the one
@@ -198,6 +198,19 @@ Safe to build without touching anything the test suite defends.
   means re-cutting that budget: a shorter format (`100` over `100/100`), or
   moving the numbers back out to the name line now that it is no longer
   carrying them. Not attempted — it is a layout rework, not a tweak.
+- **The corner tag overdraws the flee line in a real match.** Found by review,
+  not yet seen on hardware, and invisible in practice mode — which is why it
+  has survived: practice runs at `LS_IDLE`, and the bottom-left tag only draws
+  once paired. In `LS_MY_TURN` the footer's third line occupies rows 120-131
+  and `Frame::~Frame()` puts the bottom-left `OPEN`/`HOST`/`JOIN` tag at rows
+  127-134, opaque, so the bottom five rows of `5)Flee - FORFEITS` are cut off
+  with the tag sitting on top. The height budget in `drawCombatants()` counts
+  132 of 135 pixels and never accounted for the corner tags at all.
+- **The class-select lines wrap mid-word.** 240px at 9px/glyph is 26 characters
+  (`kPanelW`), and three of the four blurb lines are 30-33, so LovyanGFX wraps
+  them per character: the menu renders as seven ragged rows rather than four,
+  with orphans like `urst` and `sher`. Shortening the blurbs is the cheap fix;
+  the real one is the same budget rework as the HP-number entry above.
 - **Sound.** Unexplored entirely — unclear if the Cardputer ADV's buzzer (if
   any) is even wired in `platformio.ini`'s lib set. Needs a hardware check
   before it's schedulable.

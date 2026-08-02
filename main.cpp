@@ -167,7 +167,7 @@ struct CardputerUi : SessionUi {
                      0, g.height());
       }
       g.setTextDatum(textdatum_t::top_left);
-      g.setTextColor(ui.kTextColor, ui.kBgColor);
+      restoreText(g);
       g.setTextSize(ui.kBodyTextSize);
       if (ui.buffered) ui.canvas.pushSprite(0, 0);
     }
@@ -192,16 +192,24 @@ struct CardputerUi : SessionUi {
       lastHp[0] = lastHp[1] = -1;
       lastDelta[0] = lastDelta[1] = 0;
 
-      heading(d, "HILL-TOP HEROS");
-      // Menu sits below centre rather than directly under the title: this is
-      // the one screen with only two lines of content, and pinning them to
-      // kBodyTop left the bottom two thirds of the panel empty.
-      d->setCursor(0, 52);
+      // Both deliberately override the kBodyTop heading() just set, and both
+      // are local because they describe this screen only — matching MENU_OPEN
+      // and NOTE in tools/designs/boot_menu.json. Idle is the one screen with
+      // just two lines of content, so the menu drops toward the middle rather
+      // than leaving the bottom two thirds of the panel empty, and the boot
+      // note is pinned above the corner tags instead of trailing the menu.
+      constexpr int kMenuTop = 52, kNoteTop = 112;
+
+      heading(d.g, "HILL-TOP HEROS");
+      d->setCursor(0, kMenuTop);
       d->println("O=open - find players");
       d->println("P=practice (1 player)");
       // Boot diagnostics are chrome, not content — they matter once, on the
       // first boot after a flash, and never again.
-      if (note) footer(d, 112, note);
+      if (note) {
+        d->setCursor(0, kNoteTop);
+        hint(d.g, note);
+      }
       return;
     }
     if (s && s->state() == LS_OVER) {
@@ -222,10 +230,24 @@ struct CardputerUi : SessionUi {
   // Applies everywhere text is drawn, not just the battle screen, so the
   // whole UI stays one consistent scale.
   static constexpr float kBodyTextSize = 1.5f;
-  // Bar heights, tall enough to hold a centered size-1 (8px) label with a
-  // little padding — HP gets more breathing room since its number matters
-  // more moment to moment; MP is tight on purpose (see the height budget
-  // note below).
+  // The base font is 6x8, so this is what a body-text glyph actually measures
+  // vertically. Derived rather than written as 12, because barLabel() below
+  // compares a bar's interior against it: as a literal it would silently stop
+  // tracking the moment kBodyTextSize changed, which is exactly the drift
+  // deriving the size from the bar height was meant to rule out.
+  static constexpr int kBodyGlyphH = (int)(kBodyTextSize * 8);
+  // Bar heights. Each holds a centered label, and barLabel() picks the largest
+  // size whose glyphs fit the interior (h - 2): HP's 14 leaves 12px and gets
+  // kBodyTextSize, MP's 10 leaves 8px and gets size 1. HP is the one given the
+  // breathing room because its number matters more moment to moment; MP is
+  // tight on purpose (see the height budget note below).
+  //
+  // "Fits" is about the glyphs only. barLabel()'s outline extends one pixel
+  // past them on every side, so a label's true footprint is the glyph height
+  // plus 2 and both bars are in fact 2px over, with the outline landing on the
+  // border rows. That is accepted, not overlooked: the alternative at these
+  // heights is dropping HP back to the size-1 text that was unreadable on
+  // hardware. Do not read these numbers as having slack.
   static constexpr int kHpBarH = 14;
   static constexpr int kMpBarH = 10;
 
@@ -244,7 +266,7 @@ struct CardputerUi : SessionUi {
   static constexpr uint16_t kHitFxColor  = 0xFD20;  // orange-red
   static constexpr uint16_t kHealFxColor = 0x07FF;  // cyan
   // Chrome, as opposed to game state: everything that frames the content
-  // rather than being content. These four were approved in palette.json at
+  // rather than being content. These three were approved in palette.json at
   // the same time as the rest and then sat unused, which is how the raw
   // TFT_WHITE literals crept back in — a border, a version stamp and a
   // selection highlight all drew in the same white as body text, so nothing
@@ -287,63 +309,69 @@ struct CardputerUi : SessionUi {
 
   // "Back to normal body text", which was copy-pasted at the end of every
   // coloured span. One name means a span can't be left open by forgetting
-  // the second argument and silently inheriting a background.
-  static void restoreText(Frame& d) { d.g.setTextColor(kTextColor, kBgColor); }
+  // the second argument and silently inheriting a background. Takes the
+  // canvas rather than a Frame so the static bar helpers below, which never
+  // see a Frame, can close their spans with it too.
+  static void restoreText(LovyanGFX& g) { g.setTextColor(kTextColor, kBgColor); }
+
+  // Body origin: one heading (kBodyGlyphH) plus a gap below the top.
+  static constexpr int kBodyTop = 20;
 
   // Every screen's title. The three of them had drifted into three different
   // treatments — two colours and two vertical positions — purely because each
-  // was written at a different time. Body content starts at kBodyTop; callers
-  // position their own cursor from there.
-  static constexpr int kBodyTop = 20;
-  static void heading(Frame& d, const char* text) {
-    d.g.setTextDatum(textdatum_t::top_center);
-    d.g.setTextColor(kTitleColor, kBgColor);
-    d.g.drawString(text, kPanelW / 2, 0);
-    d.g.setTextDatum(textdatum_t::top_left);
-    restoreText(d);
+  // was written at a different time.
+  //
+  // Leaves the cursor at kBodyTop so the common case needs no positioning at
+  // all. That is a default, not a guarantee: a screen that wants its body
+  // elsewhere just calls setCursor afterwards, and the idle menu does.
+  static void heading(LovyanGFX& g, const char* text) {
+    g.setTextDatum(textdatum_t::top_center);
+    g.setTextColor(kTitleColor, kBgColor);
+    g.drawString(text, kPanelW / 2, 0);
+    g.setTextDatum(textdatum_t::top_left);
+    restoreText(g);
+    g.setCursor(0, kBodyTop);
   }
 
   // Key hints and status lines: present, findable, and deliberately not
-  // competing with the screen's actual content for attention.
-  static void footer(Frame& d, int y, const char* text) {
-    d.g.setTextColor(kDimColor, kBgColor);
-    d.g.setCursor(0, y);
-    d.g.println(text);
-    restoreText(d);
+  // competing with the screen's actual content for attention. Draws at the
+  // cursor rather than taking a y — two of the three callers want "after
+  // whatever list just printed", and the one that wants a fixed height says
+  // so by setting the cursor itself.
+  static void hint(LovyanGFX& g, const char* text) {
+    g.setTextColor(kDimColor, kBgColor);
+    g.println(text);
+    restoreText(g);
   }
 
-  // The hp/mp numbers live inside the bar rather than on the name line above
-  // it, which means a centered label straddles both halves of the bar: the
-  // fill on the left, plain background on the right, and the boundary moves
-  // as HP drops. There is no single text color that survives that. This used
-  // to draw plain white on the claim that the fill colors were "chosen to
-  // keep white legible" — on a real panel white over HP-FULL green is
-  // unreadable at full health, which is the case that matters most, since it
-  // is the number you check before committing to a turn.
+  // The label is centered on the bar, so it straddles the fill and the plain
+  // background, and that boundary moves as the value drops — no single text
+  // color survives the whole range. Hence the outline: background-colored
+  // glyphs underneath, white on top, readable over every fill color and over
+  // black, and without the opaque box a two-arg setTextColor would stamp.
   //
-  // So: outline the glyphs in the background color and draw white on top.
-  // That reads against green, yellow, red, blue and black alike, without an
-  // opaque box stamping over the bar the way a two-arg setTextColor would.
-  // Eight extra draws per label, on a buffered canvas that only repaints on
-  // a keypress — the cost is not worth optimizing into a 4-neighbour outline
-  // that leaves the diagonals thin.
+  // Eight neighbours, not four: a cross-shaped outline leaves the diagonals
+  // thin and the glyph edges show through against a bright fill. The cost is
+  // 8 extra drawString per label on a canvas that only repaints when the turn
+  // changes, so this is not worth "optimizing" — it has been tried.
   //
-  // Size is the caller's, because the two bars cannot agree on one. Contrast
-  // was only half the reason the HP number was hard to read: at size 1 it was
-  // a 6x8 glyph on a screen where everything else is 9x12. HP can afford the
-  // bigger text (14px bar, 12px interior, an exact fit for kBodyTextSize) and
-  // MP cannot (10px bar, 8px interior). Growing the MP bar to match is not
-  // free — the height budget in drawCombatants() is at 132 of 135 pixels — so
-  // MP keeps the small label, consistent with it already having been given
-  // the tighter bar on the grounds that its number matters less turn to turn.
-  static void barLabel(LovyanGFX& g, int y, int h, const char* text, float size) {
-    g.setTextSize(size);
+  // Size is derived from h, not passed in, so a later change to kHpBarH or
+  // kMpBarH cannot leave a roomier bar still drawing small. See ROADMAP.md for
+  // why the number is inside the bar at all — a layout constraint, not a
+  // preference.
+  static void barLabel(LovyanGFX& g, int y, int h, const char* text) {
+    g.setTextSize(h - 2 >= kBodyGlyphH ? kBodyTextSize : 1.0f);
     g.setTextDatum(textdatum_t::middle_center);
     const int cx = kPanelW / 2, cy = y + h / 2;
     g.setTextColor(kBgColor);
     for (int dx = -1; dx <= 1; dx++)
       for (int dy = -1; dy <= 1; dy++)
         if (dx || dy) g.drawString(text, cx + dx, cy + dy);
+    // One-arg on purpose, and NOT restoreText(): that helper is the two-arg
+    // opaque form, which fills the whole glyph cell (lgfx_fonts.cpp keys
+    // fillbg off fore != back) and would stamp a black box over the bar,
+    // erasing the outline the loop above just drew. Restoring the shared
+    // two-arg state is the caller's problem, via the Frame dtor.
     g.setTextColor(kTextColor);
     g.drawString(text, cx, cy);
     g.setTextDatum(textdatum_t::top_left);
@@ -363,7 +391,7 @@ struct CardputerUi : SessionUi {
     statBar(g, y, kHpBarH, hp, hpMax, fillColor);
     char text[16];
     snprintf(text, sizeof(text), "%d/%d", hp, hpMax);
-    barLabel(g, y, kHpBarH, text, kBodyTextSize);
+    barLabel(g, y, kHpBarH, text);
   }
 
   // Thinner and stacked directly under the HP bar, not given its own text
@@ -374,7 +402,7 @@ struct CardputerUi : SessionUi {
     statBar(g, y, kMpBarH, mp, mpMax, kMpColor);
     char text[16];
     snprintf(text, sizeof(text), "M %d/%d", mp, mpMax);
-    barLabel(g, y, kMpBarH, text, 1.0f);
+    barLabel(g, y, kMpBarH, text);
   }
 
   // Both HP rows plus the "what just happened" delta line — identical
@@ -392,9 +420,11 @@ struct CardputerUi : SessionUi {
       // Flash the row whose HP moved since the last draw — orange-red for
       // damage, cyan for a heal, so "you got hit" reads differently from
       // "nothing happened" at a glance instead of just from the numbers.
-      // Lasts only until the next redraw, since battle()/practiceBattle()
-      // fire on every poll or keypress, not just on turn resolution; a
-      // proper timed fade would need its own clock, not attempted here.
+      // Lasts only until the next redraw. Session calls battle() on state
+      // transitions — enterMyTurn() and chooseAction() — not on every poll,
+      // so the flash survives until the turn actually moves on rather than
+      // being erased by the next loop() iteration. A proper timed fade would
+      // need its own clock; not attempted here.
       bool changed = lastHp[i] >= 0 && b.p[i].hp != lastHp[i];
       if (changed) {
         lastDelta[i] = b.p[i].hp - lastHp[i];
@@ -413,7 +443,7 @@ struct CardputerUi : SessionUi {
       // player to infer from remembering which class they'd been dealt.
       // HP/MP numbers no longer sit here — see barLabel().
       d->printf("%c%s\n", i == me ? '>' : ' ', b.p[i].name);
-      if (changed) restoreText(d);
+      if (changed) restoreText(d.g);
       lastHp[i] = b.p[i].hp;
       int y = d->getCursorY();
       hpBar(d.g, y, b.p[i].hp, b.p[i].hpMax);
@@ -446,7 +476,7 @@ struct CardputerUi : SessionUi {
     bool myMove = s->state() == LS_MY_TURN;
     d.g.setTextColor(kBgColor, kSelectColor);
     d->printf("T%-3u%s\n", b.turn, myMove ? "YOUR MOVE" : "OPP'S MOVE...");
-    restoreText(d);
+    restoreText(d.g);
 
     drawCombatants(d, b, me, "You");
 
@@ -473,8 +503,7 @@ struct CardputerUi : SessionUi {
   // arrow-then-Enter.
   void classSelect() {
     Frame d(*this);
-    heading(d, "SELECT CLASS");
-    d->setCursor(0, kBodyTop);
+    heading(d.g, "SELECT CLASS");
     // Blurb order matches CLASS_TABLE in rpg_link.cpp, same as kClassColor[]
     // above it — flavor text isn't part of ClassDef, so it's the one array
     // here that still has to track the table by hand. Names come from
@@ -489,7 +518,7 @@ struct CardputerUi : SessionUi {
       d.g.setTextColor(kClassColor[i], kBgColor);
       d->printf("%d)%s - %s\n", i + 1, classNameOf(i), blurb[i]);
     }
-    footer(d, d->getCursorY(), "Q=cancel");
+    hint(d.g, "Q=cancel");
   }
 
   // Coarse RSSI bucket for display — the exact dBm number means little to a
@@ -503,8 +532,7 @@ struct CardputerUi : SessionUi {
 
   void scanResults() {
     Frame d(*this);
-    heading(d, "NEARBY PLAYERS");
-    d->setCursor(0, kBodyTop);
+    heading(d.g, "NEARBY PLAYERS");
     if (!s || s->sightingCount() == 0) {
       d->println("open - looking...");
     } else {
@@ -514,7 +542,7 @@ struct CardputerUi : SessionUi {
                   (unsigned)(sg.hostId & 0xFFFF), rssiBucket(sg.rssi));
       }
     }
-    footer(d, d->getCursorY(), "Q=cancel");
+    hint(d.g, "Q=cancel");
   }
 
   // Local single-device demo: renders straight from a BattleState the caller
