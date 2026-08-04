@@ -753,7 +753,6 @@ void setup() {
   snprintf(note, sizeof(note), "radio=%d ioe=%d", st, (int)ioeOk);
   gUi.note = note;
 
-  gSession.begin(deviceId(), esp_random());   // hw RNG, only used pre-match
   // Opened here rather than inside loadName(), so that a later saved value has
   // one obvious precondition instead of depending on a read having happened
   // first. A failure is worth saying out loud: the symptom is a name that
@@ -761,9 +760,20 @@ void setup() {
   if (!gPrefs.begin(kPrefsNamespace, /*readOnly=*/false))
     Serial.println("NVS open failed - settings will not persist this boot");
 
-  // After begin(), which resets session state: the name is device identity
-  // rather than match state, so it is restored on top of a clean Session.
+  // Before begin(), and that order is load-bearing rather than tidy: begin()
+  // does not just reset state, it paints the idle screen — which shows the
+  // name. Restoring afterwards left the panel reading "not set" until some
+  // later redraw happened to correct it, while the name screen (which reads
+  // Session on entry) showed the stored name, so the value looked both absent
+  // and present depending on where you looked. Found on hardware, not by the
+  // suite: nothing here has a display to be stale.
+  //
+  // Safe because begin() deliberately does not clear the name — it is device
+  // identity, not match state — which testNameIsTruncatedAndPersists asserts
+  // via rematch(), the same path.
   loadName();
+
+  gSession.begin(deviceId(), esp_random());   // hw RNG, only used pre-match
 }
 
 void loop() {

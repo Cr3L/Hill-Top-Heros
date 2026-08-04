@@ -255,6 +255,27 @@ Confirms on hardware what the sim asserts: beacon jitter actually prevents the
 two-open-peers collision lockstep, and mutual discovery works in both
 directions rather than one unit seeing the other but not vice versa.
 
+**Name entry works on the ADV keyboard, `Del` and `Enter` included.** These
+arrive as `bool` flags on `keysState()` rather than in `word`, and until now
+that was read off the M5Cardputer headers rather than observed — the player
+name and everything built on it depended on an inference. Typing, deleting and
+committing a name all confirmed on Unit 1.
+
+**The player name survives a power cycle.** NVS via `Preferences.h`, the only
+thing this project persists. Confirmed the whole chain on Unit 2: set, reboot,
+and the idle screen shows the stored name straight out of boot.
+
+That last clause is the part worth keeping: the first version restored the name
+*after* `Session::begin()`, which paints the idle screen, so the panel read
+"not set" while the name screen showed the stored value — present and absent
+depending on where you looked. `loadName()` must stay ahead of
+`gSession.begin()` in `setup()`. The host suite cannot catch this class of bug
+at all; nothing in it has a display.
+
+**Version skew is reported, not silent.** Two units at `PROTO_VERSION` 5 and 6
+showed "peer is on a different version" instead of failing to find each other.
+Only true for a bump that keeps `sizeof(Packet)` — see "Still unverified".
+
 **The pinout and the panel geometry live in `README.md`** — one copy, don't
 restate them here. What matters when editing `main.cpp` is which parts of that
 setup look removable and are not:
@@ -282,11 +303,15 @@ setup look removable and are not:
 
 - **`RF_FREQ_MHZ` is 915.0** (US/AU). EU is 868.0, and at 22 dBm with a 2 s
   beacon the duty cycle is over the 1% limit.
-- **A match played to completion on hardware**, and mid-match packet loss /
-  rejoin behavior — the pairing handshake is now confirmed live, but the loss
-  sweep and split-verdict numbers in `test/test_session.cpp` are still
-  simulation only. Older ESP-IDF wants `mbedtls_sha256_ret()` if the mbedtls
-  path ever needs revisiting.
+- **Mid-match packet loss / rejoin behavior.** The loss sweep and
+  split-verdict numbers in `test/test_session.cpp` are still simulation only.
+  (A match played to completion *is* confirmed — see above. This entry used to
+  claim otherwise, contradicting the section it sits under.) Older ESP-IDF
+  wants `mbedtls_sha256_ret()` if the mbedtls path ever needs revisiting.
+- **A version bump that changes `Packet`'s size.** Version skew is now
+  confirmed live for a *layout-preserving* bump (below), which is the only
+  kind `packetVersionMismatch()` can detect at all. A size-changing peer still
+  fails closed and silent, and that path cannot be tested from one binary.
 
 ## Things simulation has NOT proven
 
