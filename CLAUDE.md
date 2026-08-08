@@ -228,6 +228,38 @@ the firmware build, and the host suite never touches `main.cpp` in the other
 direction — the two builds don't overlap. Has been flashed and booted on a
 Cardputer ADV with the official **Cap LoRa-1262**.
 
+### When a unit won't take a flash
+
+Seen on Unit 2: the port appears in `/dev/serial/by-id/` and then goes away
+again within a couple of seconds, over and over. esptool opens it and dies with
+pySerial's `Write timeout` during `Connecting...`. The application boots, takes
+over USB, and stops servicing the CDC endpoint — so the failure is the firmware
+already on the device, not the cable, and swapping cables chases nothing. The
+tell that distinguishes the two: a charge-only cable never enumerates at all,
+whereas this enumerates and drops.
+
+`--before usb_reset` does not help; the chip never answers. **Recovery is the
+buttons: hold BOOT, tap RESET, release BOOT, cable plugged in throughout.** In
+download mode the ROM bootloader owns USB and the application never starts, so
+there is nothing to seize the endpoint. `pio run -t upload` then works normally.
+
+Two things about the state it leaves behind, both of which look like a failed
+flash and are not:
+
+- **The screen stays dark and the serial log stays empty afterwards.** Download
+  mode does not run the app, and a DTR/RTS reset did not reliably start it
+  either. Judge the flash by esptool's `Hash of data verified` — that is a
+  read-back — and then judge the *boot* by the panel after a power cycle, not by
+  the serial line.
+- **The panel is the arbiter, not `pio device monitor`.** `main.cpp` has no test
+  coverage and this firmware only prints at boot, so a dark screen is the signal
+  worth acting on and silence on the wire mostly is not.
+
+Unexplained, and left that way honestly: why one unit does this and the other
+never has, on identical firmware. Download mode routes around the symptom
+without diagnosing it. If it starts happening on ordinary boots rather than only
+at flash time, that is a real bug and wants its own look.
+
 ### Confirmed on hardware
 
 Boot reports `radio.begin=0 ioe=1`, and `o`/`p` drive the state machine.
