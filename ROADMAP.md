@@ -184,6 +184,18 @@ The protocol works; the experience around it is minimal.
   traffic, not worth interrupting a battle over) and once per pairing attempt
   rather than once per beacon.
 
+  **`LS_IDLE` is not one of those states, deliberately.** It was, and the
+  feature was silent because of it: the idle screen is a fixed menu with no
+  line to render a status string into, so a unit sitting on it within earshot
+  of a mismatched beacon burned the one-shot latch on a message nobody saw,
+  then opened to a permanently empty list. "Once per attempt" also has to mean
+  re-arming in `startScanning()` rather than only in `resetMatchState()`, since
+  `cancelScan()` returns to idle without passing through the latter. Both are
+  pinned by `testVersionSkewSurvivesSittingOnTheIdleMenu` and
+  `testVersionSkewIsReportedAgainAfterCancel`, which cover the gap the link
+  suite structurally cannot: `packetVersionMismatch()` was correct throughout,
+  and *which states report it* was the whole defect.
+
   **The limit is structural and worth restating here**, because it is easy to
   read the feature as more complete than it is: the CRC is checked against
   *our* `sizeof(Packet)`, so this only catches a bump that preserved the

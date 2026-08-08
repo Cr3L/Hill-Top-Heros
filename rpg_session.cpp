@@ -118,6 +118,11 @@ void Session::startScanning(uint8_t classId) {
   state_    = LS_SCANNING;
   myClassId_ = classId;
   sightingCount_ = 0;
+  // Re-armed per attempt, which is what "once per pairing attempt" has to mean
+  // if opening the list is the attempt. resetMatchState() alone is not enough:
+  // cancelScan() drops to LS_IDLE without going through it, so a player who
+  // opened, backed out and opened again would never be told a second time.
+  versionMismatchShown_ = false;
   lastRxAt_ = clk_.now();
   ui_.status("open...");
 }
@@ -528,13 +533,21 @@ void Session::pumpRx() {
     if (packetValid(p)) {
       handlePacket(p, rssi);
     } else if (!versionMismatchShown_ && packetVersionMismatch(p) &&
-               (state_ == LS_IDLE || state_ == LS_SCANNING ||
-                state_ == LS_HANDSHAKE)) {
-      // Only before/during pairing: this is the "why can't I find my peer"
-      // moment version skew actually blocks. Mid-match it would just be
-      // stray traffic, not something to interrupt a live battle over. Once
+               (state_ == LS_SCANNING || state_ == LS_HANDSHAKE)) {
+      // Only while actually looking for a peer: this is the "why can't I find
+      // my peer" moment version skew actually blocks. Mid-match it would just
+      // be stray traffic, not something to interrupt a live battle over. Once
       // per attempt, not once per packet — a beaconing mismatch would
       // otherwise repeat every BEACON_MS forever.
+      //
+      // LS_IDLE is deliberately absent, and that is load-bearing rather than an
+      // oversight: the idle screen is a fixed menu that has no line to render a
+      // status string into, so reporting from there burned this one-shot latch
+      // on a message nobody saw. A unit sitting on the menu within earshot of a
+      // mismatched beacon would then open and find an empty list, permanently
+      // and silently — the exact symptom this feature exists to remove. The
+      // latch is cleared by resetMatchState(), so an idle unit is still armed
+      // for the first mismatch it hears after opening.
       versionMismatchShown_ = true;
       ui_.status("peer is on a different version");
     }

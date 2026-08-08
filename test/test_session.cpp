@@ -497,6 +497,79 @@ static void testTwoOpenPeersDiscoverEachOther() {
   CHECK(r.host.state() == LS_SCANNING);
 }
 
+// The link suite pins packetVersionMismatch() itself; this pins the part that
+// actually reached a player — *which states report it*. That distinction is not
+// academic: the predicate was correct and the feature was still silent, because
+// LS_IDLE was in the reporting list while the idle screen has no line to render
+// a status string into. The one-shot latch got burned on a message nobody saw,
+// and the player then opened to a permanently empty list.
+static void testVersionSkewSurvivesSittingOnTheIdleMenu() {
+  printf("version skew: not swallowed while idle, reported once opened\n");
+  Rig r;
+  r.ch.reset(41);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.autoPair = false;
+  // join stays on the menu — the case that used to lose the message.
+  r.join.cancelScan();
+  CHECK(r.join.state() == LS_IDLE);
+
+  // Rewrite everything the host sends into what a peer one PROTO_VERSION ahead
+  // would put on the air: its own version byte, its own CRC computed over it.
+  // Same construction as testVersionMismatch() in the link suite.
+  r.ch.filter = [](Packet& p, int from) {
+    if (from == 0) {
+      p.version = PROTO_VERSION + 1;
+      p.crc = crc16((const uint8_t*)&p, sizeof(Packet) - sizeof(uint16_t));
+    }
+    return true;
+  };
+
+  r.run(12000, /*autoPlay=*/false);
+  CHECKM(!r.ui1.saw("different version"),
+         "idle unit reported version skew to a screen that cannot show it");
+
+  // Now the player opens. The latch must still be armed, or the skew that was
+  // audible the whole time stays unexplained forever.
+  r.join.startScanning(1);
+  r.run(12000, /*autoPlay=*/false);
+  CHECKM(r.ui1.saw("different version"),
+         "opened after hearing skew while idle and was never told");
+  CHECK(r.join.sightingCount() == 0);   // nothing pairable, hence the message
+}
+
+// Backing out of the list and opening again is a second attempt, so it gets a
+// second message. cancelScan() does not go through resetMatchState(), so the
+// latch has to be re-armed on the way in rather than on the way out.
+static void testVersionSkewIsReportedAgainAfterCancel() {
+  printf("version skew: re-armed when the list is opened again\n");
+  Rig r;
+  r.ch.reset(42);
+  r.host.begin(0x1001, 0xAAAA1111);
+  r.join.begin(0x2002, 0xBBBB2222);
+  r.host.startScanning(0);
+  r.join.startScanning(1);
+  r.autoPair = false;
+  r.ch.filter = [](Packet& p, int from) {
+    if (from == 0) {
+      p.version = PROTO_VERSION + 1;
+      p.crc = crc16((const uint8_t*)&p, sizeof(Packet) - sizeof(uint16_t));
+    }
+    return true;
+  };
+
+  r.run(12000, /*autoPlay=*/false);
+  CHECK(r.ui1.saw("different version"));
+
+  r.join.cancelScan();
+  r.ui1.lines.clear();
+  r.join.startScanning(1);
+  r.run(12000, /*autoPlay=*/false);
+  CHECKM(r.ui1.saw("different version"),
+         "second attempt at the list was never told why it is empty");
+}
+
 // Either side can be the one who initiates — there is no host-only seat any
 // more. This is the mirror of testJoinSightingPairs: the peer that would once
 // have been "the host" is the one who picks and challenges.
@@ -885,6 +958,8 @@ int main() {
   testSessionReachesTurnCap();
   testMoveTimerAutoAttacks();
   testTwoOpenPeersDiscoverEachOther();
+  testVersionSkewSurvivesSittingOnTheIdleMenu();
+  testVersionSkewIsReportedAgainAfterCancel();
   testEitherSideCanChallenge();
   testSimultaneousMutualChallenge();
   testLongBrowseThenChallengeStillPairs();
